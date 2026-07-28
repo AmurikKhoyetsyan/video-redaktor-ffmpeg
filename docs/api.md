@@ -5,6 +5,22 @@ Export endpoints return `text/event-stream` (SSE).
 
 ---
 
+## Logging
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/log` | Receive a log message from the frontend and write it to the server log |
+
+**Body:**
+```json
+{ "msg": "Something happened", "level": "INFO" }
+```
+
+`level` accepts: `INFO`, `WARNING`, `WARN`, `ERROR`, `ERR`, `DEBUG`, `DONE`, `OK`.  
+Unknown levels fall back to `INFO`. The message is written to `.outputs/logs/YYYY-MM-DD.log`.
+
+---
+
 ## Image Video Editor
 
 Base prefix: `/api/imgvid`
@@ -127,14 +143,38 @@ Base prefix: `/api/imgvid`
 
 ---
 
+### Template Files (`.vproject` format)
+
+`.vproject` files are ZIP archives in the same format as `.project`, used exclusively for templates.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/imgvid/templates/{tid}/pack` | Download template as `.vproject` attachment |
+| `POST` | `/api/imgvid/template/unpack` | Upload and unpack a `.vproject` file |
+| `POST` | `/api/imgvid/template/save-to-vproject` | Save template as `.vproject` to a server-side path |
+| `GET` | `/api/imgvid/template/browse-vproject` | List `.vproject` files in a directory |
+| `POST` | `/api/imgvid/template/load-from-vproject` | Load `.vproject` from a server-side path |
+
+**save-to-vproject body:**
+```json
+{ "tid": "abc123", "dir": "C:\\Users\\user\\Videos", "filename": "my-template.vproject" }
+```
+
+**load-from-vproject body:**
+```json
+{ "file_path": "C:\\Users\\user\\Videos\\my-template.vproject" }
+```
+
+---
+
 ### Export
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/imgvid/export` | Start SSE-streamed video export |
 | `POST` | `/api/imgvid/export-audio` | Start SSE-streamed audio-only export |
-| `POST` | `/api/imgvid/cancel-export` | Cancel the active export |
-| `GET` | `/api/imgvid/output/{name}` | Download exported file |
+| `POST` | `/api/imgvid/cancel-export` | Cancel the currently active export |
+| `GET` | `/api/imgvid/output/{name}` | Download an exported video or audio file |
 
 **Video export — multipart form fields:**
 

@@ -168,6 +168,29 @@ router.include_router(export.router)
 
 ---
 
+## Logging (`core/log.py`)
+
+All server-side logging goes through `core/log.py`. It writes to both stdout and to a daily log file in `.outputs/logs/YYYY-MM-DD.log`.
+
+```
+[2026-01-15 10:23:45] [INFO] [Server]
+Server started
+
+[2026-01-15 10:24:01] [INFO] [ImgVid]
+Project saved: My Project
+```
+
+| Function | Description |
+|----------|-------------|
+| `app_log(msg, level, source)` | Main logging function. Writes to stdout + log file with a timestamp, level, and source label. Thread-safe (mutex-protected file write). |
+| `server_log(msg, level)` | Alias for `app_log` with `source="Server"` |
+| `write_log(line, level)` | Backward-compatible alias with `source="App"` |
+| `print_progress(pct, prefix)` | Prints an ASCII progress bar to terminal (overwrites current line). Used during FFmpeg export. |
+
+The frontend sends client-side log messages to `POST /api/log` which calls `app_log(..., source="Client")`.
+
+---
+
 ## Middleware
 
 `middleware/no_cache.py` — pure ASGI middleware that adds `no-cache` headers to all `/static/js/` and `/static/css/` responses. Uses the raw ASGI interface (not `BaseHTTPMiddleware`) to avoid `CancelledError` noise on shutdown.
