@@ -88,3 +88,51 @@ def _finalize_template(project: dict) -> dict:
     with open(tpath, "w", encoding="utf-8") as fh:
         json.dump(project, fh, ensure_ascii=False, indent=2)
     return project
+
+
+def _collect_media_filenames(project: dict) -> set:
+    """Return the set of all media filenames referenced by a project/template dict."""
+    names = set()
+    for slide in project.get("slides", []):
+        fn = slide.get("file") or slide.get("image", "")
+        if fn:
+            names.add(fn)
+        thumb = slide.get("thumbUrl", "")
+        if thumb:
+            names.add(thumb.split("/")[-1])
+    for track in project.get("audio", []):
+        fn = track.get("file", "")
+        if fn:
+            names.add(fn)
+    for pip in project.get("pip", []):
+        fn = pip.get("file", "")
+        if fn:
+            names.add(fn)
+    return names
+
+
+def delete_orphaned_media(deleted_project: dict) -> None:
+    """Delete media files that are no longer referenced by any project or template."""
+    to_delete = _collect_media_filenames(deleted_project)
+    if not to_delete:
+        return
+    in_use: set = set()
+    for folder in [PROJECTS_DIR, TEMPLATES_DIR]:
+        if not os.path.isdir(folder):
+            continue
+        for fname in os.listdir(folder):
+            if not fname.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, fname), encoding="utf-8") as f:
+                    in_use |= _collect_media_filenames(json.load(f))
+            except Exception:
+                pass
+    for name in to_delete - in_use:
+        for media_dir in [IMAGES_DIR, CLIPS_DIR, AUDIO_DIR, THUMBS_DIR]:
+            if not media_dir:
+                continue
+            path = os.path.join(media_dir, name)
+            if os.path.exists(path):
+                os.remove(path)
+                break

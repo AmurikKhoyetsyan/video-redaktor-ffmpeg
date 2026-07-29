@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from core.log import app_log
+import routers.imgvid.project_ops as _proj_ops
 
 router = APIRouter()
 
@@ -142,10 +143,15 @@ async def rename_project(pid: str, body: dict):
 
 @router.delete("/projects/{pid}")
 async def delete_project(pid: str):
-    """Delete a project JSON file."""
+    """Delete a project JSON file and any media files it exclusively owns."""
     path = os.path.join(PROJECTS_DIR, f"{pid}.json")
+    project_data = None
     if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            project_data = json.load(f)
         os.remove(path)
+    if project_data:
+        _proj_ops.delete_orphaned_media(project_data)
     app_log(f"Project deleted: {pid}", "INFO", "ImgVid")
     return {"ok": True}
 
