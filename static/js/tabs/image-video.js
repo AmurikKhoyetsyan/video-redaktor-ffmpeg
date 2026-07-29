@@ -5416,7 +5416,7 @@ export async function init() {
             listEl.innerHTML = tmpls.map(t => `
             <div class="ive-proj-row${S.isTemplateMode && S.editingTemplateId === t.id ? ' active' : ''}" data-tid="${t.id}">
                 <div class="ive-proj-name">${eh(t.name)}</div>
-                <div class="ive-proj-meta">${t.slide_count} сл. · ${t.total_duration}с · ${_fmtDate(t.updated_at)}</div>
+                <div class="ive-proj-meta">${t.slide_count} сл. · ${t.total_duration}с</div>
                 <div class="ive-proj-btns">
                     <button class="hist-btn accent" data-tact="use" title="Применить шаблон">${ICONS.edit}</button>
                     <button class="hist-btn" data-tact="edit" title="Редактировать шаблон">${ICONS.open}</button>
