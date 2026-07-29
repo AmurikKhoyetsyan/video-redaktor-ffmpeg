@@ -4895,6 +4895,7 @@ export async function init() {
                 <div class="ive-proj-meta">${p.slide_count} · ${p.total_duration}с</div>
                 <div class="ive-proj-btns">
                     <button class="hist-btn accent" data-pact="open">${ICONS.edit}</button>
+                    <button class="hist-btn"        data-pact="rename">${ICONS.pencil}</button>
                     <button class="hist-btn danger"  data-pact="del">${ICONS.trash}</button>
                 </div>
             </div>`).join('');
@@ -5432,6 +5433,24 @@ export async function init() {
         const row = e.target.closest('.ive-proj-row'); if (!row) return;
         const pid = row.dataset.pid;
         const act = e.target.closest('[data-pact]')?.dataset.pact;
+        if (act === 'rename') {
+            const curName = row.querySelector('.ive-proj-name')?.textContent || '';
+            const newName = await openPrompt({ title: 'Переименовать проект', initial: curName, confirmLabel: 'Сохранить' });
+            if (newName === null || !newName.trim()) return;
+            try {
+                const r = await fetch(`/api/imgvid/projects/${pid}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName.trim() }),
+                });
+                const d = await r.json();
+                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
+                if (S.projectId === pid) { S.projectName = d.name; $('ive-project-name').value = d.name; }
+                toast('Проект переименован: ' + d.name, 'ok');
+                await loadProjectsList();
+            } catch (err) { toast(err.message, 'err'); }
+            return;
+        }
         if (act === 'del') {
             const ok = await openConfirm({ title: 'Удалить', message: 'Удалить проект?', confirmLabel: 'Удалить' });
             if (!ok) return;
