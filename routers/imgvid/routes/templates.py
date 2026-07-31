@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from core.log import app_log
+import routers.imgvid.project_ops as _proj_ops
 
 router = APIRouter()
 
@@ -145,11 +146,17 @@ async def update_template(tid: str, body: ProjectBody):
 
 @router.delete("/templates/{tid}")
 async def delete_template(tid: str):
-    """Delete a template from both TEMPLATES_DIR and (legacy) PROJECTS_DIR."""
+    """Delete a template from both TEMPLATES_DIR and (legacy) PROJECTS_DIR, plus orphaned media."""
+    template_data = None
     for folder in [TEMPLATES_DIR, PROJECTS_DIR]:
         p = os.path.join(folder, f"{tid}.json")
         if os.path.exists(p):
+            if template_data is None:
+                with open(p, encoding="utf-8") as f:
+                    template_data = json.load(f)
             os.remove(p)
+    if template_data:
+        _proj_ops.delete_orphaned_media(template_data)
     app_log(f"Template deleted: {tid}", "INFO", "ImgVid")
     return {"ok": True}
 
