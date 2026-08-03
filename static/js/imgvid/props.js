@@ -62,15 +62,15 @@ function _renderPropsSubsGlobal() {
     <div class="ive-sub-body">
     <label class="ive-label">Текст<textarea class="ive-textarea" data-sf="text" data-si="${si}" rows="2">${eh(sub.text || '')}</textarea></label>
     <div class="ive-row2">
-        <label class="ive-label">Нач.(с)<input class="ive-input" type="number" data-sf="start" data-si="${si}" min="0" step="0.1" value="${(sub.start ?? 0).toFixed(1)}"></label>
-        <label class="ive-label">Кон.(с)<input class="ive-input" type="number" data-sf="end"   data-si="${si}" min="0" step="0.1" value="${(sub.end ?? 3).toFixed(1)}"></label>
+        <label class="ive-label">Нач.(с)<input class="ive-input" type="number" data-sf="start" data-si="${si}" min="0" step="0.001" value="${(sub.start ?? 0).toFixed(3)}"></label>
+        <label class="ive-label">Кон.(с)<input class="ive-input" type="number" data-sf="end"   data-si="${si}" min="0" step="0.001" value="${(sub.end ?? 3).toFixed(3)}"></label>
     </div>
     <div class="ive-row2">
-        <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" value="${sub.x ?? 50}"></label>
-        <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" value="${sub.y ?? 88}"></label>
+        <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.x ?? 50).toFixed(3)}"></label>
+        <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.y ?? 88).toFixed(3)}"></label>
     </div>
     <div class="ive-row2">
-        <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="1" value="${sub.w || 0}" placeholder="Авто"></label>
+        <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.w || 0).toFixed(3)}" placeholder="Авто"></label>
         <label class="ive-label" title="Высота в пикселях (0 = авто)">Height px<input class="ive-input" type="number" data-sf="h" data-si="${si}" min="0" max="2000" step="10" value="${sub.h || 0}" placeholder="Авто"></label>
     </div>
     <div class="ive-row2">

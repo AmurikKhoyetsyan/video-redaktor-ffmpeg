@@ -466,7 +466,7 @@ function _renderSubsTrack(total) {
                     const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
                     p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                 });
-                S.dirty = true; renderTimeline();
+                S.dirty = true; renderTimeline(); if (S.selSubIdx >= 0) _cb.renderProps();
             };
             const onUp = () => {
                 document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
@@ -485,7 +485,7 @@ function _renderSubsTrack(total) {
             const onMove = ev => {
                 moved = true;
                 sub.end = Math.max((sub.start || 0) + 0.1, snapToStep((e0 + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
-                S.dirty = true; renderTimeline();
+                S.dirty = true; renderTimeline(); if (S.selSubIdx >= 0) _cb.renderProps();
             };
             const onUp = () => {
                 document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
