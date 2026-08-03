@@ -1,9 +1,9 @@
-import { S } from './state.js';
+﻿import { S } from './state.js';
 import { TRANSITIONS } from './constants.js';
 import { drawWaveform } from './waveform.js';
 import { eh, fmtShort } from './utils.js';
 import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from './utils.js';
-import { getSnapTargets, snap } from './utils.js';
+import { getSnapTargets, snap, snapToStep } from './utils.js';
 
 let _dom = {};
 let _cb  = {}; // callbacks: selectClip, renderProps, pushHistory, renderAll, renderPreview
@@ -137,7 +137,7 @@ function _renderVideoTrack(total) {
             let moved = false;
             const onMove = ev => {
                 moved = true;
-                clip.duration = Math.max(0.5, Math.round((sd + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                clip.duration = Math.max(0.5, snapToStep((sd + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                 S.dirty = true; renderTimeline(); _cb.renderMediaList(); if (i === S.selIdx) _cb.renderProps();
             };
             const onUp = () => {
@@ -156,9 +156,9 @@ function _renderVideoTrack(total) {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    const newIn = Math.max(0, Math.round((sTrimIn + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                    const newIn = Math.max(0, snapToStep((sTrimIn + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                     clip.trimIn   = newIn;
-                    clip.duration = Math.max(0.5, Math.round((outPt - newIn) * 10) / 10);
+                    clip.duration = Math.max(0.5, snapToStep((outPt - newIn), S.pxPerSec));
                     S.dirty = true; renderTimeline(); _cb.renderMediaList(); if (i === S.selIdx) _cb.renderProps();
                 };
                 const onUp = () => {
@@ -316,7 +316,7 @@ function _renderAudioTracks(total, contentW) {
                     const laneShift = Math.round((ev.clientY - sy) / rowH);
                     _dragInitAudio.forEach(({ idx, startOffset, laneIndex: initLane }) => {
                         if (!S.audioTracks[idx]) return;
-                        S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                        S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                         if (laneShift !== 0) {
                             const newLane = Math.max(0, initLane + laneShift);
                             S.audioTracks[idx].laneIndex = newLane;
@@ -324,13 +324,13 @@ function _renderAudioTracks(total, contentW) {
                     });
                     _dragInitSub.forEach(({ idx, start, dur }) => {
                         const s = S.subtitles[idx]; if (!s) return;
-                        const newStart = Math.max(0, Math.round((start + dx) * 10) / 10);
-                        s.start = newStart; s.end = Math.round((newStart + dur) * 10) / 10;
+                        const newStart = Math.max(0, snapToStep((start + dx), S.pxPerSec));
+                        s.start = newStart; s.end = snapToStep((newStart + dur), S.pxPerSec);
                     });
                     _dragInitPip.forEach(({ idx, startTime, dur }) => {
                         const p = S.pipLayers[idx]; if (!p) return;
-                        const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                        p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                        const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                        p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                     });
                     S.dirty = true; renderTimeline(); _cb.renderProps();
                 };
@@ -351,11 +351,11 @@ function _renderAudioTracks(total, contentW) {
                     moved = true;
                     const dx = (ev.clientX - sx) / S.pxPerSec;
                     const maxTrimIn = (track.originalDuration || 9999) - 0.5;
-                    const newOff    = Math.max(0, Math.round((sOff + dx) * 10) / 10);
-                    const newTrimIn = Math.max(0, Math.min(maxTrimIn, Math.round((sTrimIn + dx) * 10) / 10));
+                    const newOff    = Math.max(0, snapToStep((sOff + dx), S.pxPerSec));
+                    const newTrimIn = Math.max(0, Math.min(maxTrimIn, snapToStep((sTrimIn + dx), S.pxPerSec)));
                     track.startOffset = newOff;
                     track.trimIn      = newTrimIn;
-                    track.duration    = Math.max(0.5, Math.round((outPt - newOff) * 10) / 10);
+                    track.duration    = Math.max(0.5, snapToStep((outPt - newOff), S.pxPerSec));
                     S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) _cb.renderProps();
                 };
                 const onUp = () => {
@@ -373,7 +373,7 @@ function _renderAudioTracks(total, contentW) {
                 const onMove = ev => {
                     moved = true;
                     const maxDur = (track.originalDuration || 9999) - (track.trimIn || 0);
-                    track.duration = Math.max(0.5, Math.min(maxDur, Math.round((sDur + (ev.clientX - sx) / S.pxPerSec) * 10) / 10));
+                    track.duration = Math.max(0.5, Math.min(maxDur, snapToStep((sDur + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec)));
                     S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) _cb.renderProps();
                 };
                 const onUp = () => {
@@ -455,16 +455,16 @@ function _renderSubsTrack(total) {
                     const s2 = S.subtitles[idx]; if (!s2) return;
                     let newStart = Math.max(0, start0 + dx);
                     if (_dragSubIds.length === 1 && _dragInitAudio.length === 0 && _dragInitPip.length === 0) newStart = snap(newStart, snapTargets);
-                    s2.start = Math.round(newStart * 10) / 10;
-                    s2.end   = Math.round((newStart + d) * 10) / 10;
+                    s2.start = snapToStep(newStart, S.pxPerSec);
+                    s2.end   = snapToStep((newStart + d), S.pxPerSec);
                 });
                 _dragInitAudio.forEach(({ idx, startOffset }) => {
-                    if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                    if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                 });
                 _dragInitPip.forEach(({ idx, startTime, dur }) => {
                     const p = S.pipLayers[idx]; if (!p) return;
-                    const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                    p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                    const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                    p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                 });
                 S.dirty = true; renderTimeline();
             };
@@ -484,7 +484,7 @@ function _renderSubsTrack(total) {
             let moved = false;
             const onMove = ev => {
                 moved = true;
-                sub.end = Math.max((sub.start || 0) + 0.1, Math.round((e0 + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                sub.end = Math.max((sub.start || 0) + 0.1, snapToStep((e0 + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                 S.dirty = true; renderTimeline();
             };
             const onUp = () => {
@@ -620,12 +620,12 @@ function _renderPipTrack(total) {
                     p2.endTime   = p2.startTime + d;
                 });
                 _dragInitAudio.forEach(({ idx, startOffset }) => {
-                    if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                    if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                 });
                 _dragInitSub.forEach(({ idx, start, dur }) => {
                     const s = S.subtitles[idx]; if (!s) return;
-                    const newStart = Math.max(0, Math.round((start + dx) * 10) / 10);
-                    s.start = newStart; s.end = Math.round((newStart + dur) * 10) / 10;
+                    const newStart = Math.max(0, snapToStep((start + dx), S.pxPerSec));
+                    s.start = newStart; s.end = snapToStep((newStart + dur), S.pxPerSec);
                 });
                 S.dirty = true; _renderPipTrack(total);
             };

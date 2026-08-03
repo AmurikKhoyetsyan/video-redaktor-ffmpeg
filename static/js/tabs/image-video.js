@@ -1,4 +1,4 @@
-import { log }             from '../logger.js';
+﻿import { log }             from '../logger.js';
 import { toast }           from '../toast.js';
 import { synthesizeStream } from '../api.js';
 import { openConfirm, openPrompt } from '../modal.js';
@@ -6,7 +6,7 @@ import { ICONS }           from '../icons.js';
 import { events }          from '../events.js';
 
 import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS, CONTINUOUS_EFFECTS, PIP_START_EFFECTS, PIP_END_EFFECTS, PIP_CONTINUOUS_EFFECTS } from '../imgvid/constants.js';
-import { uid, eh, fmt, fmtShort, buildCSSFilter, hexToRgba, _makeTextShadow, getSnapTargets, snap } from '../imgvid/utils.js';
+import { uid, eh, fmt, fmtShort, buildCSSFilter, hexToRgba, _makeTextShadow, getSnapTargets, snap, snapToStep } from '../imgvid/utils.js';
 import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from '../imgvid/utils.js';
 import { drawWaveform, probeAudioDuration } from '../imgvid/waveform.js';
 import { createExpModal } from '../imgvid/exp-modal.js';
@@ -655,7 +655,7 @@ export async function init() {
         const onMove = ev => {
             moved = true;
             const dx = (ev.clientX - sx) / rect.width * 100;
-            sub.w = Math.max(5, Math.min(100, Math.round((w0 + 2 * dx) * 10) / 10));
+            sub.w = Math.max(5, Math.min(100, snapToStep((w0 + 2 * dx), S.pxPerSec)));
             S.dirty = true; renderPreview(); if (S.selSubIdx >= 0) renderProps();
         };
         const onUp = () => {
@@ -705,7 +705,7 @@ export async function init() {
             moved = true;
             const dx = (ev.clientX - sx) / rect.width * 100;
             const dy = (ev.clientY - sy) / sc;
-            sub.w = Math.max(5, Math.min(100, Math.round((w0 + 2 * dx) * 10) / 10));
+            sub.w = Math.max(5, Math.min(100, snapToStep((w0 + 2 * dx), S.pxPerSec)));
             sub.h = Math.max(10, Math.round(h0 + 2 * dy));
             S.dirty = true; renderPreview(); if (S.selSubIdx >= 0) renderProps();
         };
@@ -739,8 +739,8 @@ export async function init() {
         const rect = (subContainer || previewContent).getBoundingClientRect();
         const dxPct = (e.clientX - _subDx0) / rect.width  * 100;
         const dyPct = (e.clientY - _subDy0) / rect.height * 100;
-        sub.x = Math.max(0, Math.min(100, Math.round((_subX0 + dxPct) * 10) / 10));
-        sub.y = Math.max(0, Math.min(100, Math.round((_subY0 + dyPct) * 10) / 10));
+        sub.x = Math.max(0, Math.min(100, snapToStep((_subX0 + dxPct), S.pxPerSec)));
+        sub.y = Math.max(0, Math.min(100, snapToStep((_subY0 + dyPct), S.pxPerSec)));
         subOverlay.style.left = sub.x + '%';
         subOverlay.style.top  = sub.y + '%';
         S.dirty = true;
@@ -2060,7 +2060,7 @@ export async function init() {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    clip.duration = Math.max(0.5, Math.round((sd + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                    clip.duration = Math.max(0.5, snapToStep((sd + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                     S.dirty = true; renderTimeline(); renderMediaList(); if (i === S.selIdx) renderProps();
                 };
                 const onUp = () => {
@@ -2079,9 +2079,9 @@ export async function init() {
                     let moved = false;
                     const onMove = ev => {
                         moved = true;
-                        const newIn = Math.max(0, Math.round((sTrimIn + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                        const newIn = Math.max(0, snapToStep((sTrimIn + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                         clip.trimIn   = newIn;
-                        clip.duration = Math.max(0.5, Math.round((outPt - newIn) * 10) / 10);
+                        clip.duration = Math.max(0.5, snapToStep((outPt - newIn), S.pxPerSec));
                         S.dirty = true; renderTimeline(); renderMediaList(); if (i === S.selIdx) renderProps();
                     };
                     const onUp = () => {
@@ -2251,7 +2251,7 @@ export async function init() {
                         const laneShift = Math.round((ev.clientY - sy) / rowH);
                         _dragInitAudio.forEach(({ idx, startOffset, laneIndex: initLane }) => {
                             if (!S.audioTracks[idx]) return;
-                            S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                            S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                             if (laneShift !== 0) {
                                 const newLane = Math.max(0, initLane + laneShift);
                                 S.audioTracks[idx].laneIndex = newLane;
@@ -2259,13 +2259,13 @@ export async function init() {
                         });
                         _dragInitSub.forEach(({ idx, start, dur }) => {
                             const s = S.subtitles[idx]; if (!s) return;
-                            const newStart = Math.max(0, Math.round((start + dx) * 10) / 10);
-                            s.start = newStart; s.end = Math.round((newStart + dur) * 10) / 10;
+                            const newStart = Math.max(0, snapToStep((start + dx), S.pxPerSec));
+                            s.start = newStart; s.end = snapToStep((newStart + dur), S.pxPerSec);
                         });
                         _dragInitPip.forEach(({ idx, startTime, dur }) => {
                             const p = S.pipLayers[idx]; if (!p) return;
-                            const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                            p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                            const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                            p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                         });
                         S.dirty = true; renderTimeline(); renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
@@ -2291,11 +2291,11 @@ export async function init() {
                         const scrollDx = tracksScroll.scrollLeft - scrollStart;
                         const dx = (ev.clientX - sx + scrollDx) / S.pxPerSec;
                         const maxTrimIn = (track.originalDuration || 9999) - 0.5;
-                        const newOff    = Math.max(0, Math.round((sOff + dx) * 10) / 10);
-                        const newTrimIn = Math.max(0, Math.min(maxTrimIn, Math.round((sTrimIn + dx) * 10) / 10));
+                        const newOff    = Math.max(0, snapToStep((sOff + dx), S.pxPerSec));
+                        const newTrimIn = Math.max(0, Math.min(maxTrimIn, snapToStep((sTrimIn + dx), S.pxPerSec)));
                         track.startOffset = newOff;
                         track.trimIn      = newTrimIn;
-                        track.duration    = Math.max(0.5, Math.round((outPt - newOff) * 10) / 10);
+                        track.duration    = Math.max(0.5, snapToStep((outPt - newOff), S.pxPerSec));
                         S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
                         if (ev.clientX > scR.right - 50) tracksScroll.scrollLeft += 10;
@@ -2318,7 +2318,7 @@ export async function init() {
                         moved = true;
                         const scrollDx = tracksScroll.scrollLeft - scrollStart;
                         const maxDur = (track.originalDuration || 9999) - (track.trimIn || 0);
-                        track.duration = Math.max(0.5, Math.min(maxDur, Math.round((sDur + (ev.clientX - sx + scrollDx) / S.pxPerSec) * 10) / 10));
+                        track.duration = Math.max(0.5, Math.min(maxDur, snapToStep((sDur + (ev.clientX - sx + scrollDx) / S.pxPerSec), S.pxPerSec)));
                         S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
                         if (ev.clientX > scR.right - 50) tracksScroll.scrollLeft += 10;
@@ -2412,16 +2412,16 @@ export async function init() {
                         const s2 = S.subtitles[idx]; if (!s2) return;
                         let newStart = Math.max(0, start0 + dx);
                         if (_dragSubIds.length === 1 && _dragInitAudio.length === 0 && _dragInitPip.length === 0) newStart = _snap(newStart, snapTargets);
-                        s2.start = Math.round(newStart * 10) / 10;
-                        s2.end   = Math.round((newStart + d) * 10) / 10;
+                        s2.start = snapToStep(newStart, S.pxPerSec);
+                        s2.end   = snapToStep((newStart + d), S.pxPerSec);
                     });
                     _dragInitAudio.forEach(({ idx, startOffset }) => {
-                        if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                        if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                     });
                     _dragInitPip.forEach(({ idx, startTime, dur }) => {
                         const p = S.pipLayers[idx]; if (!p) return;
-                        const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                        p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                        const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                        p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                     });
                     S.dirty = true; renderTimeline();
                 };
@@ -2441,7 +2441,7 @@ export async function init() {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    sub.end = Math.max((sub.start || 0) + 0.1, Math.round((e0 + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                    sub.end = Math.max((sub.start || 0) + 0.1, snapToStep((e0 + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                     S.dirty = true; renderTimeline();
                 };
                 const onUp = () => {
@@ -3238,7 +3238,7 @@ export async function init() {
 
         $('pv-add-sub').addEventListener('click', () => {
             const t = S.currentTime;
-            S.subtitles.push({ id: uid(), text: '', start: Math.round(t * 10) / 10, end: Math.round((t + 3) * 10) / 10,
+            S.subtitles.push({ id: uid(), text: '', start: snapToStep(t, S.pxPerSec), end: snapToStep((t + 3), S.pxPerSec),
                 x: 50, y: 88, w: 0, h: 0, fontFamily: 'Arial', fontSize: 40, color: '#ffffff',
                 outline: 2, outlineColor: '#000000', shadow: 1, shadowColor: '#000000',
                 bold: false, italic: false, underline: false,
@@ -3386,9 +3386,9 @@ export async function init() {
             const origMax = track.originalDuration || 9999;
             const newTrimIn = Math.max(0, Math.min(origMax - 0.5, v));
             const prevEnd = (track.trimIn || 0) + (track.duration !== undefined ? track.duration : 0);
-            track.trimIn = Math.round(newTrimIn * 10) / 10;
+            track.trimIn = snapToStep(newTrimIn, S.pxPerSec);
             if (prevEnd > track.trimIn) {
-                track.duration = Math.max(0.5, Math.round((prevEnd - track.trimIn) * 10) / 10);
+                track.duration = Math.max(0.5, snapToStep((prevEnd - track.trimIn), S.pxPerSec));
             }
             _syncTrimFields();
             S.dirty = true; renderTimeline();
@@ -3400,7 +3400,7 @@ export async function init() {
             const origMax = track.originalDuration || 9999;
             const trimIn = track.trimIn || 0;
             const newEnd = Math.max(trimIn + 0.5, Math.min(origMax, v));
-            track.duration = Math.max(0.5, Math.round((newEnd - trimIn) * 10) / 10);
+            track.duration = Math.max(0.5, snapToStep((newEnd - trimIn), S.pxPerSec));
             _syncTrimFields();
             S.dirty = true; renderTimeline();
         });
@@ -3699,7 +3699,7 @@ export async function init() {
             const dispEl = $('pv-speed-display');
             if (dispEl) dispEl.textContent = clamped + '×';
             if (clip.originalDuration !== undefined) {
-                clip.duration = Math.max(0.5, Math.round((clip.originalDuration / clamped) * 10) / 10);
+                clip.duration = Math.max(0.5, snapToStep((clip.originalDuration / clamped), S.pxPerSec));
                 const durEl = $('pv-dur');
                 if (durEl) durEl.value = clip.duration;
             }
