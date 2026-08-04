@@ -47,6 +47,11 @@ let _historyMinIdx =  0; // floor: undo stops here. 0 = any baseline reachable; 
 // ── Audio element pool ────────────────────────────────────────────────────────
 const _audioEls = new Map(); // trackId → HTMLAudioElement
 
+// ── Project tabs ──────────────────────────────────────────────────────────────
+const _tabs = [];          // array of tab state snapshots
+let _activeTabIdx = 0;
+let _tabClipboard = null;  // {clips, audioTracks, subtitles, pipLayers}
+
 function _syncAudio(t, force = false) {
     const allIds = new Set(S.audioTracks.map(x => x.id));
     // Prune removed tracks
@@ -339,7 +344,7 @@ export async function init() {
         if (S.dirty && !confirm('Несохранённые изменения. Создать новый проект?')) return;
         _stopPlayback(); _resetState(); renderAll(); await loadProjectsList();
     });
-    projectNameEl.addEventListener('input', () => { S.projectName = projectNameEl.value; S.dirty = true; });
+    projectNameEl.addEventListener('input', () => { S.projectName = projectNameEl.value; S.dirty = true; _renderTabBar(); });
 
     // ── Media upload ──────────────────────────────────────────────────────────
     addImgBtn.addEventListener('click', () => imgInput.click());
@@ -1227,6 +1232,8 @@ export async function init() {
 
     await loadProjectsList();
     await loadTemplatesList();
+    _tabs.push(_snapshotTabState());
+    _activeTabIdx = 0;
     renderAll();
 
     // ── Project / Template search ─────────────────────────────────────────────
@@ -1858,9 +1865,180 @@ export async function init() {
     // Render functions
     // ══════════════════════════════════════════════════════════════════════════
 
+    // ── Tab management ────────────────────────────────────────────────────────
+
+    function _snapshotTabState() {
+        return {
+            projectId: S.projectId, projectName: S.projectName,
+            clips: JSON.parse(JSON.stringify(S.clips)),
+            audioTracks: JSON.parse(JSON.stringify(S.audioTracks)),
+            subtitles: JSON.parse(JSON.stringify(S.subtitles)),
+            pipLayers: JSON.parse(JSON.stringify(S.pipLayers.filter(p => !p._empty))),
+            selIdx: S.selIdx, selAudioIdx: S.selAudioIdx,
+            selSubIdx: S.selSubIdx, selPipIdx: S.selPipIdx,
+            activeTab: S.activeTab, dirty: S.dirty,
+            currentTime: S.currentTime, pxPerSec: S.pxPerSec,
+            previewMode: S.previewMode, previewZoom: S.previewZoom,
+            isTemplateMode: S.isTemplateMode, editingTemplateId: S.editingTemplateId,
+            trackOrder: [...(S.trackOrder || ['video', 'audio', 'subtitle', 'pip'])],
+            canvasCrop: S.canvasCrop ? { ...S.canvasCrop } : null,
+            historyStack: JSON.parse(JSON.stringify(_historyStack)),
+            histIdx: _historyIdx,
+        };
+    }
+
+    function _applyTabState(snap) {
+        _stopPlayback();
+        _pipEls.forEach(({ wrapper }) => { if (wrapper?.parentNode) wrapper.parentNode.removeChild(wrapper); });
+        _pipEls.clear();
+        _cancelCropMode();
+        if (cropBtn) cropBtn.classList.remove('ive-crop-active');
+        S.projectId = snap.projectId;
+        S.projectName = snap.projectName;
+        S.clips = snap.clips;
+        S.audioTracks = snap.audioTracks;
+        S.subtitles = snap.subtitles;
+        S.pipLayers = snap.pipLayers;
+        S.selIdx = snap.selIdx ?? -1;
+        S.selAudioIdx = snap.selAudioIdx ?? -1;
+        S.selSubIdx = snap.selSubIdx ?? -1;
+        S.selPipIdx = snap.selPipIdx ?? -1;
+        S.selIdxs = new Set();
+        S.selSubIdxs = new Set();
+        S.selPipIdxs = new Set();
+        S.selAudioIdxs = new Set();
+        S.activeTab = snap.activeTab || 'slide';
+        S.dirty = snap.dirty || false;
+        S.currentTime = snap.currentTime || 0;
+        S.pxPerSec = snap.pxPerSec || 80;
+        S.previewMode = snap.previewMode || 'fit';
+        S.previewZoom = snap.previewZoom || 1.0;
+        S.isTemplateMode = snap.isTemplateMode || false;
+        S.editingTemplateId = snap.editingTemplateId || null;
+        S.trackOrder = snap.trackOrder || ['video', 'audio', 'subtitle', 'pip'];
+        S.canvasCrop = snap.canvasCrop || null;
+        _historyStack.length = 0;
+        (snap.historyStack || []).forEach(h => _historyStack.push(h));
+        _historyIdx = snap.histIdx ?? -1;
+        _historyMinIdx = 0;
+        document.querySelectorAll('.ive-ptab').forEach(b => b.classList.toggle('active', b.dataset.ptab === S.activeTab));
+        _updateSaveBtn();
+        renderAll();
+    }
+
+    function _switchTab(idx) {
+        if (idx === _activeTabIdx || idx < 0 || idx >= _tabs.length) return;
+        _tabs[_activeTabIdx] = _snapshotTabState();
+        _activeTabIdx = idx;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    function _addTab() {
+        _tabs[_activeTabIdx] = _snapshotTabState();
+        _tabs.push({
+            projectId: null, projectName: 'Новый проект',
+            clips: [], audioTracks: [], subtitles: [], pipLayers: [],
+            selIdx: -1, selAudioIdx: -1, selSubIdx: -1, selPipIdx: -1,
+            activeTab: 'slide', dirty: false, currentTime: 0, pxPerSec: 80,
+            previewMode: 'fit', previewZoom: 1.0,
+            isTemplateMode: false, editingTemplateId: null,
+            trackOrder: ['video', 'audio', 'subtitle', 'pip'],
+            canvasCrop: null, historyStack: [], histIdx: -1,
+        });
+        _activeTabIdx = _tabs.length - 1;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    async function _closeTab(idx) {
+        if (_tabs.length <= 1) { toast('Нельзя закрыть последний таб', 'warn'); return; }
+        const isDirty = idx === _activeTabIdx ? S.dirty : _tabs[idx].dirty;
+        const name    = idx === _activeTabIdx ? S.projectName : _tabs[idx].projectName;
+        if (isDirty) {
+            const ok = await openConfirm(`Закрыть "${name}"?\nНесохранённые изменения будут потеряны.`);
+            if (!ok) return;
+        }
+        _tabs.splice(idx, 1);
+        if (_activeTabIdx > idx) _activeTabIdx--;
+        else if (_activeTabIdx >= _tabs.length) _activeTabIdx = _tabs.length - 1;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    function _renderTabBar() {
+        const bar = document.getElementById('ive-tab-bar');
+        if (!bar || !_tabs.length) return;
+        const list = _tabs.map((t, i) => {
+            const name    = i === _activeTabIdx ? S.projectName : (t.projectName || 'Новый проект');
+            const isDirty = i === _activeTabIdx ? S.dirty : t.dirty;
+            return `<div class="ive-tab${i === _activeTabIdx ? ' active' : ''}" data-tabidx="${i}" title="${eh(name)}">
+                <span class="ive-tab-name">${eh(name)}${isDirty ? ' •' : ''}</span>
+                ${_tabs.length > 1 ? `<button class="ive-tab-close" data-tabclose="${i}">×</button>` : ''}
+            </div>`;
+        }).join('');
+        bar.innerHTML = `
+            <div class="ive-tab-list">${list}</div>
+            <button class="ive-tab-add" id="ive-tab-add" title="Открыть в новом табе">+</button>
+            <div class="ive-tab-actions">
+                <button class="btn btn-sm" id="ive-tab-copy" title="Копировать всё содержимое этого таба">⎘ Копир.</button>
+                <button class="btn btn-sm" id="ive-tab-paste" title="Вставить на позицию курсора"${_tabClipboard ? '' : ' disabled'}>⎗ Вставить</button>
+            </div>`;
+        bar.querySelectorAll('.ive-tab').forEach(el => {
+            el.addEventListener('click', e => { if (!e.target.closest('[data-tabclose]')) _switchTab(+el.dataset.tabidx); });
+        });
+        bar.querySelectorAll('[data-tabclose]').forEach(btn => {
+            btn.addEventListener('click', e => { e.stopPropagation(); _closeTab(+btn.dataset.tabclose); });
+        });
+        document.getElementById('ive-tab-add')?.addEventListener('click', _addTab);
+        document.getElementById('ive-tab-copy')?.addEventListener('click', _copyTabContent);
+        document.getElementById('ive-tab-paste')?.addEventListener('click', _pasteTabContent);
+    }
+
+    function _copyTabContent() {
+        _tabClipboard = {
+            clips:       JSON.parse(JSON.stringify(S.clips)),
+            audioTracks: JSON.parse(JSON.stringify(S.audioTracks)),
+            subtitles:   JSON.parse(JSON.stringify(S.subtitles)),
+            pipLayers:   JSON.parse(JSON.stringify(S.pipLayers.filter(p => !p._empty))),
+        };
+        const parts = [];
+        if (_tabClipboard.clips.length)       parts.push(_tabClipboard.clips.length + ' клип.');
+        if (_tabClipboard.audioTracks.length) parts.push(_tabClipboard.audioTracks.length + ' аудио');
+        if (_tabClipboard.subtitles.length)   parts.push(_tabClipboard.subtitles.length + ' субт.');
+        if (_tabClipboard.pipLayers.length)   parts.push(_tabClipboard.pipLayers.length + ' PIP');
+        toast('Скопировано: ' + (parts.join(', ') || 'пусто'), 'ok');
+        _renderTabBar();
+    }
+
+    function _pasteTabContent() {
+        if (!_tabClipboard) { toast('Буфер пуст', 'warn'); return; }
+        const t = S.currentTime;
+        // Find insertion index for clips: after the clip playing at currentTime
+        let insertIdx = S.clips.length;
+        let cum = 0;
+        for (let i = 0; i < S.clips.length; i++) {
+            cum += S.clips[i].duration || 3;
+            if (t < cum) { insertIdx = i + 1; break; }
+        }
+        const newClips = _tabClipboard.clips.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid() }));
+        S.clips.splice(insertIdx, 0, ...newClips);
+        for (const a of _tabClipboard.audioTracks) {
+            S.audioTracks.push({ ...JSON.parse(JSON.stringify(a)), id: uid(), startOffset: (a.startOffset || 0) + t });
+        }
+        for (const sub of _tabClipboard.subtitles) {
+            S.subtitles.push({ ...JSON.parse(JSON.stringify(sub)), id: uid(), start: (sub.start || 0) + t, end: (sub.end || 3) + t });
+        }
+        for (const pip of _tabClipboard.pipLayers) {
+            S.pipLayers.push({ ...JSON.parse(JSON.stringify(pip)), id: uid() });
+        }
+        S.dirty = true;
+        _pushHistory();
+        renderAll();
+        toast(`Вставлено на ${t.toFixed(2)}с`, 'ok');
+    }
+
     function renderAll() {
         renderMediaList(); renderTimeline(); renderPreview(); renderProps();
         projectNameEl.value = S.projectName; _updateTransportUI();
+        _renderTabBar();
     }
 
     // ── Media list (sidebar) ──────────────────────────────────────────────────
