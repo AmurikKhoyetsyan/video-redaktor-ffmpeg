@@ -1,6 +1,13 @@
 // Extracted pure utility functions from image-video.js
 
 export function uid()     { return Math.random().toString(36).slice(2, 10); }
+
+// Dynamic drag step: 0.1 at low zoom (pxPerSec≤10), down to 0.001 at high zoom (pxPerSec≥1000)
+export function snapToStep(value, pxPerSec) {
+    const step = Math.max(0.001, Math.min(0.1, 1 / pxPerSec));
+    const inv = 1 / step;
+    return Math.round(value * inv) / inv;
+}
 export function eh(s)     { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 export function fmt(s)    { const m = Math.floor(s / 60), ss = Math.floor(s % 60), t = Math.floor((s % 1) * 10); return `${m}:${ss.toString().padStart(2,'0')}.${t}`; }
 export function fmtShort(s) { const m = Math.floor(s / 60), ss = Math.floor(s % 60); return `${m}:${ss.toString().padStart(2,'0')}`; }
