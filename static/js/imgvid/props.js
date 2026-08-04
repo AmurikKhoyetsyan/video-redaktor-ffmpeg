@@ -1,6 +1,6 @@
 import { S, _audioEls } from './state.js';
 import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS } from './constants.js';
-import { uid, eh, fmt } from './utils.js';
+import { uid, eh, fmt, snapToStep } from './utils.js';
 import { ICONS } from '../icons.js';
 import { toast } from '../toast.js';
 import { openConfirm, openPrompt } from '../modal.js';
@@ -38,6 +38,7 @@ export function renderProps() {
 function _renderPropsSubsGlobal() {
     const subs = S.subtitles;
     const $ = id => document.getElementById(id);
+    const dynStep = Math.max(0.001, Math.min(0.1, 1 / (S.pxPerSec || 100)));
     _dom.propsBody.innerHTML = `
 <div class="ive-subs-header">
     <button class="btn btn-sm" id="pv-add-sub">+ Субтитр</button>
@@ -66,11 +67,11 @@ function _renderPropsSubsGlobal() {
         <label class="ive-label">Кон.(с)<input class="ive-input" type="number" data-sf="end"   data-si="${si}" min="0" step="0.001" value="${(sub.end ?? 3).toFixed(3)}"></label>
     </div>
     <div class="ive-row2">
-        <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.x ?? 50).toFixed(3)}"></label>
-        <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.y ?? 88).toFixed(3)}"></label>
+        <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" step="${dynStep}" value="${(sub.x ?? 50).toFixed(3)}"></label>
+        <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" step="${dynStep}" value="${(sub.y ?? 88).toFixed(3)}"></label>
     </div>
     <div class="ive-row2">
-        <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.w || 0).toFixed(3)}" placeholder="Авто"></label>
+        <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="${dynStep}" value="${(sub.w || 0).toFixed(3)}" placeholder="Авто"></label>
         <label class="ive-label" title="Высота в пикселях (0 = авто)">Height px<input class="ive-input" type="number" data-sf="h" data-si="${si}" min="0" max="2000" step="10" value="${sub.h || 0}" placeholder="Авто"></label>
     </div>
     <div class="ive-row2">
@@ -283,7 +284,10 @@ function _renderPropsSubsGlobal() {
             const sub = S.subtitles[+el.dataset.si]; if (!sub) return;
             const key = el.dataset.sf;
             if (el.type === 'checkbox') sub[key] = el.checked;
-            else if (el.type === 'number') sub[key] = parseFloat(el.value) || 0;
+            else if (el.type === 'number') {
+                const v = parseFloat(el.value) || 0;
+                sub[key] = ['x', 'y', 'w'].includes(key) ? snapToStep(v, S.pxPerSec || 100) : v;
+            }
             else if (el.type === 'range') {
                 sub[key] = parseFloat(el.value);
                 const vEl = el.nextElementSibling;
