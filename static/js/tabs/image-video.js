@@ -2841,6 +2841,8 @@ export async function init() {
             const videoTime = local + (clip.trimIn || 0);
             const vSpeed    = clip.speed ?? 1;
             if (previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
+            previewVideo.volume = clip.clipVolume ?? 1;
+            previewVideo.muted  = !!clip.muteAudio;
             if (inTrans) {
                 // Outgoing clip at its last frame — always frozen during transition
                 if (!previewVideo.paused) previewVideo.pause();
@@ -3826,7 +3828,13 @@ export async function init() {
                 </div>
                 <div id="pv-speed-display" style="font-size:11px;color:var(--text-dim)">${(clip.speed??1)}×</div>
             </label>
-            ${isVideo ? `<label class="ive-toggle-row ive-label">Убрать аудио видео
+            ${isVideo ? `<label class="ive-label">Громкость видео
+                <div class="ive-range-row">
+                    <input class="ive-range" type="range" id="pv-clip-vol-range" min="0" max="1" step="0.01" value="${clip.clipVolume ?? 1}">
+                    <input class="ive-input" id="pv-clip-vol-input" type="number" min="0" max="1" step="0.01" style="width:60px;flex-shrink:0" value="${clip.clipVolume ?? 1}">
+                </div>
+            </label>
+            <label class="ive-toggle-row ive-label">Убрать аудио видео
                 <input class="ive-toggle" type="checkbox" id="pv-mute-audio"${clip.muteAudio ? ' checked' : ''}>
             </label>
             <label class="ive-label">Вход (с)
@@ -3980,8 +3988,24 @@ export async function init() {
             if (isFinite(v) && v > 0) _applyVideoSpeed(v);
         });
         if (isVideo) {
+            const _applyClipVol = v => {
+                clip.clipVolume = v;
+                previewVideo.volume = v;
+                S.dirty = true;
+            };
+            $('pv-clip-vol-range')?.addEventListener('input', () => {
+                const v = parseFloat($('pv-clip-vol-range').value);
+                $('pv-clip-vol-input').value = v.toFixed(2);
+                _applyClipVol(v);
+            });
+            $('pv-clip-vol-input')?.addEventListener('change', () => {
+                const v = Math.min(1, Math.max(0, parseFloat($('pv-clip-vol-input').value) || 0));
+                $('pv-clip-vol-range').value = v;
+                _applyClipVol(v);
+            });
             $('pv-mute-audio')?.addEventListener('change', e => {
                 clip.muteAudio = e.target.checked;
+                previewVideo.muted = e.target.checked;
                 S.dirty = true;
             });
             $('pv-trimin')?.addEventListener('change', e => {
@@ -3998,6 +4022,7 @@ export async function init() {
                 c.endEffect        = JSON.parse(JSON.stringify(clip.endEffect        || {}));
                 c.continuousEffect = JSON.parse(JSON.stringify(clip.continuousEffect || {}));
                 c.speed      = clip.speed;
+                c.clipVolume = clip.clipVolume;
                 c.muteAudio  = clip.muteAudio;
                 c.trimIn     = clip.trimIn;
             });

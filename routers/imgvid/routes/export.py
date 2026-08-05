@@ -457,6 +457,59 @@ async def export_video(
                     )
                     filter_parts.extend(audio_filter_parts)
 
+                # ── Clip audio (video clip audio tracks) ─────────────────────
+                has_clip_audio = any(
+                    s.get("type") == "video" and not s.get("muteAudio")
+                    for s in slides
+                )
+                if has_clip_audio:
+                    def _atempo_chain(speed: float) -> str:
+                        parts: list[str] = []
+                        s = float(speed)
+                        while s > 2.0 + 1e-9:
+                            parts.append("atempo=2.0")
+                            s /= 2.0
+                        while s < 0.5 - 1e-9:
+                            parts.append("atempo=0.5")
+                            s /= 0.5
+                        if abs(s - 1.0) > 1e-4:
+                            parts.append(f"atempo={s:.6f}")
+                        return ",".join(parts) if parts else "acopy"
+
+                    clip_audio_parts: list[str] = []
+                    for _ci, _cs in enumerate(slides):
+                        _ctype = _cs.get("type", "image")
+                        _cdur  = float(_cs.get("duration", 4))
+                        _cspd  = float(_cs.get("speed", 1) or 1)
+                        _ctrm  = float(_cs.get("trimIn", 0) or 0)
+                        _cmute = _cs.get("muteAudio", False)
+                        _cvol  = float(_cs.get("clipVolume") or 1)
+                        if _ctype == "video" and not _cmute:
+                            _ca: list[str] = []
+                            if _ctrm > 0 or _cspd != 1.0:
+                                _aud_dur = _cdur / max(0.01, _cspd)
+                                _ca.append(f"atrim=start={_ctrm:.3f}:duration={_aud_dur:.3f},asetpts=PTS-STARTPTS")
+                            if _cspd != 1.0:
+                                _ca.append(_atempo_chain(_cspd))
+                            if abs(_cvol - 1.0) > 1e-4:
+                                _ca.append(f"volume={_cvol:.4f}")
+                            _chain = ",".join(_ca) if _ca else "acopy"
+                            clip_audio_parts.append(f"[{_ci}:a]{_chain}[ca{_ci}]")
+                        else:
+                            clip_audio_parts.append(f"anullsrc=r=44100:cl=stereo:d={_cdur:.3f}[ca{_ci}]")
+                    _cn = len(slides)
+                    _cin = "".join(f"[ca{_k}]" for _k in range(_cn))
+                    clip_audio_parts.append(f"{_cin}concat=n={_cn}:v=0:a=1[clips_audio]")
+                    filter_parts.extend(clip_audio_parts)
+                    if audio_map:
+                        _elab = audio_map[1][1:-1]
+                        filter_parts.append(
+                            f"[clips_audio][{_elab}]amix=inputs=2:duration=first:dropout_transition=0[final_audio]"
+                        )
+                        audio_map = ["-map", "[final_audio]"]
+                    else:
+                        audio_map = ["-map", "[clips_audio]"]
+
                 # ── Codec ────────────────────────────────────────────────────
                 ext = output_format.lower()
                 vcodec_name = resolve_codec_name(codec, ext)
