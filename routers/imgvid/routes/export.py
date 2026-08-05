@@ -28,6 +28,7 @@ from core.log import app_log, print_progress
 from routers.imgvid.ffmpeg_utils import (
     FFMPEG, FFPROBE,
     _EFFECTS,
+    _XFADE,
     _KEN_BURNS_TYPES,
     _compute_video_dur,
     _probe_duration_clip,
@@ -180,6 +181,7 @@ async def export_video(
 
                 # ── Inputs ───────────────────────────────────────────────────
                 cmd_inputs: list[str] = []
+                slide_input_args: list[list[str]] = []
                 for i, slide in enumerate(slides):
                     clip_type = slide.get("type", "image")
                     dur = float(slide.get("duration", 4))
@@ -190,12 +192,14 @@ async def export_video(
                         speed = float(slide.get("speed", 1) or 1)
                         trim_in = float(slide.get("trimIn", 0) or 0)
                         load_dur = (dur / max(0.01, speed)) + trim_in + 0.1
-                        cmd_inputs += ["-t", f"{load_dur:.3f}", "-i", vp]
+                        _s_inp = ["-t", f"{load_dur:.3f}", "-i", vp]
                     else:
                         img_path = os.path.join(IMAGES_DIR, slide.get("file", slide.get("image", "")))
                         if not os.path.exists(img_path):
                             q.put(("error", f"Файл не найден: {slide.get('file', slide.get('image'))}")); return
-                        cmd_inputs += ["-loop", "1", "-t", f"{dur:.3f}", "-i", img_path]
+                        _s_inp = ["-loop", "1", "-t", f"{dur:.3f}", "-i", img_path]
+                    cmd_inputs += _s_inp
+                    slide_input_args.append(_s_inp)
 
                 audio_tracks = project.get("audio", [])
                 audio_start_idx = len(slides)
@@ -494,11 +498,6 @@ async def export_video(
 
                 filter_complex = ";\n".join(filter_parts)
 
-                # Write filter_complex to a file to avoid Windows 32 767-char command-line limit
-                fc_script_path = os.path.join(tmp, "filter_complex.txt")
-                with open(fc_script_path, "w", encoding="utf-8") as _fc_f:
-                    _fc_f.write(filter_complex)
-
                 ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 out_name = f"imgvid_{ts}.{ext}"
                 out_path = os.path.join(OUTPUT_DIR, out_name)
@@ -506,12 +505,144 @@ async def export_video(
                 cmd = (
                     [FFMPEG, "-y", "-nostdin"]
                     + cmd_inputs
-                    + ["-filter_complex_script", fc_script_path]
+                    + ["-filter_complex", filter_complex]
                     + ["-map", f"[{final_video_label}]"]
                     + audio_map
                     + vcodec + acodec
                     + [out_path]
                 )
+
+                # ── Two-pass fallback for long Windows command lines ─────────────────────
+                if os.name == 'nt' and len(subprocess.list2cmdline(cmd)) > 30000:
+                    q.put(("progress", 0.14, "Большой проект — двухпроходный рендер…"))
+                    slide_tmpfiles: list[str] = []
+
+                    # Pass 1: render each slide independently to a short lossless temp file
+                    for si in range(len(slides)):
+                        s_out = os.path.join(tmp, f"s{si:04d}.mkv")
+                        # Reindex this slide's filter from [si:v]→[0:v] and [vsi]→[v0]
+                        s_fc = (filter_parts[si]
+                                .replace(f"[{si}:v]", "[0:v]", 1)
+                                .replace(f"[v{si}]", "[v0]", 1))
+                        s_cmd = ([FFMPEG, "-y", "-nostdin"]
+                                 + slide_input_args[si]
+                                 + ["-filter_complex", s_fc,
+                                    "-map", "[v0]",
+                                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+                                    "-an", "-r", str(fps), "-pix_fmt", "yuv420p",
+                                    s_out])
+                        pct = int(14 + 40 * (si + 1) / len(slides))
+                        q.put(("progress", pct / 100, f"Предрендер: слайд {si + 1}/{len(slides)}…"))
+                        _r1 = subprocess.run(s_cmd, capture_output=True, creationflags=_NO_WIN)
+                        if _r1.returncode != 0:
+                            _err1 = _r1.stderr.decode("utf-8", errors="replace")[-500:]
+                            q.put(("error", f"Ошибка предрендера слайда {si + 1}:\n{_err1}")); return
+                        slide_tmpfiles.append(s_out)
+
+                    # Pass 2: concat + transitions + PIPs + subtitles + audio
+                    q.put(("progress", 0.55, "Финальная сборка…"))
+
+                    p2_inputs: list[str] = []
+                    for sf in slide_tmpfiles:
+                        p2_inputs += ["-i", sf]
+                    p2_audio_start = len(slide_tmpfiles)
+                    for track in valid_audio:
+                        ap = os.path.join(AUDIO_DIR, track.get("file", ""))
+                        p2_inputs += ["-i", ap]
+                    p2_pip_start = p2_audio_start + len(valid_audio)
+                    for pi2, pip2 in enumerate(valid_pip):
+                        pip2["_ffmpeg_idx"] = p2_pip_start + pi2
+                        _pp = pip2["_path"]
+                        if pip2.get("type") == "video":
+                            p2_inputs += ["-i", _pp]
+                        else:
+                            p2_inputs += ["-loop", "1", "-t", f"{_total_dur_approx:.3f}", "-i", _pp]
+
+                    # Build pass-2 transition filter using [i:v] stream labels + bulk concat
+                    p2_fp: list[str] = []
+                    _cum = [0.0] * len(slides)
+                    for _k in range(1, len(slides)):
+                        _cum[_k] = _cum[_k - 1] + float(slides[_k - 1].get("duration", 4))
+
+                    if len(slides) == 1:
+                        _p2prev = "0:v"
+                    else:
+                        _p2prev = "0:v"
+                        _p2i = 1
+                        while _p2i < len(slides):
+                            _p2trans = slides[_p2i].get("transition") or {}
+                            _p2xname = _XFADE.get(_p2trans.get("type", "none"))
+                            if _p2xname:
+                                _p2tdur = float(_p2trans.get("duration", 0.5))
+                                _p2pad = f"p2p{_p2i}"
+                                _p2out = f"p2x{_p2i}"
+                                p2_fp.append(f"[{_p2prev}]tpad=stop_mode=clone:stop_duration={_p2tdur:.3f}[{_p2pad}]")
+                                p2_fp.append(f"[{_p2pad}][{_p2i}:v]xfade=transition={_p2xname}:duration={_p2tdur:.3f}:offset={max(0, _cum[_p2i]):.3f}[{_p2out}]")
+                                _p2prev = _p2out
+                                _p2i += 1
+                            else:
+                                _p2j = _p2i
+                                while _p2j + 1 < len(slides) and not _XFADE.get(((slides[_p2j + 1].get("transition") or {}).get("type", "none"))):
+                                    _p2j += 1
+                                _p2cnt = 1 + (_p2j - _p2i + 1)
+                                _p2in = f"[{_p2prev}]" + "".join(f"[{_k2}:v]" for _k2 in range(_p2i, _p2j + 1))
+                                _p2raw = f"p2cr{_p2i}"
+                                _p2cout = f"p2co{_p2i}"
+                                p2_fp.append(f"{_p2in}concat=n={_p2cnt}:v=1:a=0[{_p2raw}]")
+                                p2_fp.append(f"[{_p2raw}]settb=1/{fps},setpts=PTS-STARTPTS[{_p2cout}]")
+                                _p2prev = _p2cout
+                                _p2i = _p2j + 1
+
+                    p2_fp.append(f"[{_p2prev}]null[p2vbase]")
+                    _p2_pip_base = "p2vbase"
+
+                    if has_canvas_crop:
+                        p2_fp.append(f"[p2vbase]crop={cc_w_val}:{cc_h_val}:{cc_x}:{cc_y}[p2vcrop]")
+                        _p2_pip_base = "p2vcrop"
+
+                    if pip_on_top:
+                        if sub_filter:
+                            p2_fp.append(f"[{_p2_pip_base}]{sub_filter}[p2vsub]")
+                            _p2_pip_filters, _p2_pip_label = build_pip_filters(
+                                sorted_pip, p2_pip_start, "p2vsub", pip_canvas_w, pip_canvas_h,
+                                _compute_video_dur(slides), fps,
+                            )
+                        else:
+                            _p2_pip_filters, _p2_pip_label = build_pip_filters(
+                                sorted_pip, p2_pip_start, _p2_pip_base, pip_canvas_w, pip_canvas_h,
+                                _compute_video_dur(slides), fps,
+                            )
+                        p2_fp.extend(_p2_pip_filters)
+                        _p2_final_v = _p2_pip_label
+                    else:
+                        _p2_pip_filters, _p2_pip_label = build_pip_filters(
+                            sorted_pip, p2_pip_start, _p2_pip_base, pip_canvas_w, pip_canvas_h,
+                            _compute_video_dur(slides), fps,
+                        )
+                        p2_fp.extend(_p2_pip_filters)
+                        if sub_filter:
+                            p2_fp.append(f"[{_p2_pip_label}]{sub_filter}[p2vfin]")
+                            _p2_final_v = "p2vfin"
+                        else:
+                            _p2_final_v = _p2_pip_label
+
+                    p2_audio_map: list[str] = []
+                    if valid_audio:
+                        _p2_af, p2_audio_map = build_audio_chain(valid_audio, p2_audio_start, total_dur)
+                        p2_fp.extend(_p2_af)
+
+                    p2_fc = ";\n".join(p2_fp)
+                    cmd = (
+                        [FFMPEG, "-y", "-nostdin"]
+                        + p2_inputs
+                        + ["-filter_complex", p2_fc]
+                        + ["-map", f"[{_p2_final_v}]"]
+                        + p2_audio_map
+                        + vcodec + acodec
+                        + [out_path]
+                    )
+                    app_log(f"Two-pass mode: pass-2 cmd len={len(subprocess.list2cmdline(cmd))}", "INFO", "ImgVid")
+                # ── End two-pass block ────────────────────────────────────────────────────
 
                 app_log(f"Export start: {out_name} ({len(slides)} slides)", "INFO", "ImgVid")
                 app_log(f"FFmpeg cmd: {' '.join(cmd)}", "DEBUG", "ImgVid")

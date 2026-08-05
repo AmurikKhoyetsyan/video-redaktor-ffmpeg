@@ -161,34 +161,49 @@ def build_transition_filters(
         label after all transitions (e.g. ``"v0"`` for a single-slide project
         or ``"xf3"`` for a three-slide project).
     """
-    if len(slides) == 1:
+    N = len(slides)
+    if N == 1:
         return filter_parts, "v0"
 
+    # Pre-compute cumulative durations (offset of slide i = sum of durations 0..i-1)
+    cum_dur = [0.0] * N
+    for k in range(1, N):
+        cum_dur[k] = cum_dur[k - 1] + float(slides[k - 1].get("duration", 3))
+
     prev = "v0"
-    offset = 0.0
-    for i in range(1, len(slides)):
-        trans = slides[i].get("transition", {})
+    i = 1
+    while i < N:
+        trans = slides[i].get("transition") or {}
         xname = _XFADE.get(trans.get("type", "none"))
-        tdur = float(trans.get("duration", 0.5)) if xname else 0.0
-        # Additive: offset = cumulative sum of full clip durations (no subtraction)
-        offset += float(slides[i - 1].get("duration", 3))
-        out = f"xf{i}"
         if xname:
-            # Pad outgoing stream so it has frozen frames during the transition window
+            # Xfade transition: keep pairwise logic
+            tdur = float(trans.get("duration", 0.5))
             padded = f"{prev}_p{i}"
+            out = f"xf{i}"
+            # Pad outgoing stream so it has frozen frames during the transition window
             filter_parts.append(
                 f"[{prev}]tpad=stop_mode=clone:stop_duration={tdur:.3f}[{padded}]"
             )
             filter_parts.append(
                 f"[{padded}][v{i}]xfade=transition={xname}:"
-                f"duration={tdur:.3f}:offset={max(0, offset):.3f}[{out}]"
+                f"duration={tdur:.3f}:offset={max(0, cum_dur[i]):.3f}[{out}]"
             )
+            prev = out
+            i += 1
         else:
-            raw = f"{out}r"
-            fps_val = 30  # will be overridden by caller if needed; kept for compatibility
-            filter_parts.append(f"[{prev}][v{i}]concat=n=2:v=1:a=0[{raw}]")
+            # Collect consecutive no-transition slides into a bulk concat group
+            j = i
+            while j + 1 < N and not _XFADE.get(((slides[j + 1].get("transition") or {}).get("type", "none"))):
+                j += 1
+            # Bulk N-way concat: prev + slides i..j
+            cnt = 1 + (j - i + 1)
+            in_labels = f"[{prev}]" + "".join(f"[v{k}]" for k in range(i, j + 1))
+            raw = f"xf{i}r"
+            out = f"xf{i}"
+            filter_parts.append(f"{in_labels}concat=n={cnt}:v=1:a=0[{raw}]")
             filter_parts.append(f"[{raw}]settb=1/30,setpts=PTS-STARTPTS[{out}]")
-        prev = out
+            prev = out
+            i = j + 1
 
     return filter_parts, prev
 
@@ -201,33 +216,51 @@ def build_transition_filters_fps(
     """Variant of :func:`build_transition_filters` that uses the project fps for ``settb``.
 
     Prefer this function over :func:`build_transition_filters` when the fps is
-    known.
+    known.  Uses N-way bulk concat for consecutive no-transition slides to keep
+    the filter_complex string short (important for Windows 32 767-char limit).
     """
-    if len(slides) == 1:
+    N = len(slides)
+    if N == 1:
         return filter_parts, "v0"
 
+    # Pre-compute cumulative durations (offset of slide i = sum of durations 0..i-1)
+    cum_dur = [0.0] * N
+    for k in range(1, N):
+        cum_dur[k] = cum_dur[k - 1] + float(slides[k - 1].get("duration", 3))
+
     prev = "v0"
-    offset = 0.0
-    for i in range(1, len(slides)):
-        trans = slides[i].get("transition", {})
+    i = 1
+    while i < N:
+        trans = slides[i].get("transition") or {}
         xname = _XFADE.get(trans.get("type", "none"))
-        tdur = float(trans.get("duration", 0.5)) if xname else 0.0
-        offset += float(slides[i - 1].get("duration", 3))
-        out = f"xf{i}"
         if xname:
+            # Xfade transition: keep pairwise logic
+            tdur = float(trans.get("duration", 0.5))
             padded = f"{prev}_p{i}"
+            out = f"xf{i}"
             filter_parts.append(
                 f"[{prev}]tpad=stop_mode=clone:stop_duration={tdur:.3f}[{padded}]"
             )
             filter_parts.append(
                 f"[{padded}][v{i}]xfade=transition={xname}:"
-                f"duration={tdur:.3f}:offset={max(0, offset):.3f}[{out}]"
+                f"duration={tdur:.3f}:offset={max(0, cum_dur[i]):.3f}[{out}]"
             )
+            prev = out
+            i += 1
         else:
-            raw = f"{out}r"
-            filter_parts.append(f"[{prev}][v{i}]concat=n=2:v=1:a=0[{raw}]")
+            # Collect consecutive no-transition slides into a bulk concat group
+            j = i
+            while j + 1 < N and not _XFADE.get(((slides[j + 1].get("transition") or {}).get("type", "none"))):
+                j += 1
+            # Bulk N-way concat: prev + slides i..j
+            cnt = 1 + (j - i + 1)
+            in_labels = f"[{prev}]" + "".join(f"[v{k}]" for k in range(i, j + 1))
+            raw = f"xf{i}r"
+            out = f"xf{i}"
+            filter_parts.append(f"{in_labels}concat=n={cnt}:v=1:a=0[{raw}]")
             filter_parts.append(f"[{raw}]settb=1/{fps},setpts=PTS-STARTPTS[{out}]")
-        prev = out
+            prev = out
+            i = j + 1
 
     return filter_parts, prev
 
