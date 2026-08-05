@@ -1979,6 +1979,7 @@ export async function init() {
             canvasCrop: S.canvasCrop ? { ...S.canvasCrop } : null,
             historyStack: JSON.parse(JSON.stringify(_historyStack)),
             histIdx: _historyIdx,
+            exportSettings: (() => { try { return expModal.getSettings(); } catch { return null; } })(),
         };
     }
 
@@ -2016,6 +2017,10 @@ export async function init() {
         (snap.historyStack || []).forEach(h => _historyStack.push(h));
         _historyIdx = snap.histIdx ?? -1;
         _historyMinIdx = 0;
+        if (snap.exportSettings) {
+            expModal.applySettings(snap.exportSettings);
+            _updatePreviewSize();
+        }
         document.querySelectorAll('.ive-ptab').forEach(b => b.classList.toggle('active', b.dataset.ptab === S.activeTab));
         _updateSaveBtn();
         renderAll();
@@ -3830,8 +3835,8 @@ export async function init() {
             </label>
             ${isVideo ? `<label class="ive-label">Громкость видео
                 <div class="ive-range-row">
-                    <input class="ive-range" type="range" id="pv-clip-vol-range" min="0" max="1" step="0.01" value="${clip.clipVolume ?? 1}">
-                    <input class="ive-input" id="pv-clip-vol-input" type="number" min="0" max="1" step="0.01" style="width:60px;flex-shrink:0" value="${clip.clipVolume ?? 1}">
+                    <input class="ive-range" type="range" id="pv-clip-vol-range" min="0" max="100" step="1" value="${Math.round((clip.clipVolume ?? 1) * 100)}">
+                    <input class="ive-input" id="pv-clip-vol-input" type="number" min="0" max="100" step="1" style="width:60px;flex-shrink:0" value="${Math.round((clip.clipVolume ?? 1) * 100)}">
                 </div>
             </label>
             <label class="ive-toggle-row ive-label">Убрать аудио видео
@@ -3995,13 +4000,13 @@ export async function init() {
             };
             $('pv-clip-vol-range')?.addEventListener('input', () => {
                 const v = parseFloat($('pv-clip-vol-range').value);
-                $('pv-clip-vol-input').value = v.toFixed(2);
-                _applyClipVol(v);
+                $('pv-clip-vol-input').value = v;
+                _applyClipVol(v / 100);
             });
             $('pv-clip-vol-input')?.addEventListener('change', () => {
-                const v = Math.min(1, Math.max(0, parseFloat($('pv-clip-vol-input').value) || 0));
+                const v = Math.min(100, Math.max(0, parseFloat($('pv-clip-vol-input').value) || 0));
                 $('pv-clip-vol-range').value = v;
-                _applyClipVol(v);
+                _applyClipVol(v / 100);
             });
             $('pv-mute-audio')?.addEventListener('change', e => {
                 clip.muteAudio = e.target.checked;
