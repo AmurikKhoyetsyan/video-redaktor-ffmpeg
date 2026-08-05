@@ -1203,6 +1203,101 @@ export async function init() {
         }
     });
 
+    // ── Right-click context menu on timeline items ────────────────────────────
+    (function _initCtxMenu() {
+        const _ctx = document.createElement('div');
+        _ctx.id = 'ive-ctx-menu';
+        Object.assign(_ctx.style, {
+            position: 'fixed', zIndex: '9999', display: 'none',
+            background: '#252525', border: '1px solid #444',
+            borderRadius: '6px', padding: '4px 0', minWidth: '160px',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.6)', fontSize: '13px',
+            userSelect: 'none',
+        });
+
+        function _mkItem(label, fn) {
+            const el = document.createElement('div');
+            el.textContent = label;
+            Object.assign(el.style, { padding: '7px 16px', cursor: 'pointer', color: '#ccc' });
+            el.addEventListener('mouseenter', () => { el.style.background = '#383838'; });
+            el.addEventListener('mouseleave', () => { el.style.background = ''; });
+            el.addEventListener('mousedown', e => { e.preventDefault(); _close(); fn(); });
+            _ctx.appendChild(el);
+            return el;
+        }
+
+        _mkItem('⎘  Копировать', () => _copySelected());
+        _mkItem('✂  Вырезать',             () => _cutSelected());
+        const _pasteItem = _mkItem('⎗  Вставить', () => _pasteSelected());
+
+        document.body.appendChild(_ctx);
+
+        function _close() { _ctx.style.display = 'none'; }
+
+        function _show(x, y) {
+            _pasteItem.style.opacity       = _clipboard ? '1' : '0.4';
+            _pasteItem.style.pointerEvents = _clipboard ? ''  : 'none';
+            _ctx.style.display = 'block';
+            _ctx.style.left = x + 'px';
+            _ctx.style.top  = y + 'px';
+            const r = _ctx.getBoundingClientRect();
+            if (r.right  > window.innerWidth)  _ctx.style.left = (x - r.width)  + 'px';
+            if (r.bottom > window.innerHeight) _ctx.style.top  = (y - r.height) + 'px';
+        }
+
+        document.addEventListener('mousedown', e => { if (!_ctx.contains(e.target)) _close(); }, true);
+        document.addEventListener('keydown',   e => { if (e.key === 'Escape') _close(); }, true);
+
+        tracksScroll.addEventListener('contextmenu', e => {
+            const clipEl  = e.target.closest('.ive-tl-clip');
+            const audioEl = e.target.closest('.ive-tl-audio-item');
+            const subEl   = e.target.closest('.ive-tl-sub-item');
+            const pipEl   = e.target.closest('.ive-tl-pip-item');
+            if (!clipEl && !audioEl && !subEl && !pipEl) return;
+            e.preventDefault();
+
+            if (clipEl) {
+                const ci = +clipEl.dataset.cidx;
+                if (S.selIdx !== ci && !S.selIdxs.has(ci)) {
+                    S.selIdx = ci;  S.selIdxs = new Set([ci]);
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selSubIdx = -1;   S.selSubIdxs = new Set();
+                    S.selPipIdx = -1;   S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            } else if (audioEl) {
+                const ai = +audioEl.dataset.aidx;
+                if (S.selAudioIdx !== ai && !S.selAudioIdxs.has(ai)) {
+                    S.selAudioIdx = ai; S.selAudioIdxs = new Set([ai]);
+                    S.selIdx = -1;    S.selIdxs = new Set();
+                    S.selSubIdx = -1; S.selSubIdxs = new Set();
+                    S.selPipIdx = -1; S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            } else if (subEl) {
+                const si = +subEl.dataset.sidx;
+                if (S.selSubIdx !== si && !S.selSubIdxs.has(si)) {
+                    S.selSubIdx = si; S.selSubIdxs = new Set([si]);
+                    S.selIdx = -1;      S.selIdxs = new Set();
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selPipIdx = -1;   S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            } else if (pipEl) {
+                const pi = +pipEl.dataset.pi;
+                if (S.selPipIdx !== pi && !S.selPipIdxs.has(pi)) {
+                    S.selPipIdx = pi; S.selPipIdxs = new Set([pi]);
+                    S.selIdx = -1;      S.selIdxs = new Set();
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selSubIdx = -1;   S.selSubIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            }
+
+            _show(e.clientX, e.clientY);
+        });
+    })();
+
     // ── Sidebar sub-tabs (Projects / Templates) ───────────────────────────────
     function _switchSidebarTab(name) {
         document.querySelectorAll('.ive-stab').forEach(b => {
@@ -1977,11 +2072,7 @@ export async function init() {
         }).join('');
         bar.innerHTML = `
             <div class="ive-tab-list">${list}</div>
-            <button class="ive-tab-add" id="ive-tab-add" title="Открыть в новом табе">+</button>
-            <div class="ive-tab-actions">
-                <button class="btn btn-sm" id="ive-tab-copy" title="Копировать всё содержимое этого таба">⎘ Копир.</button>
-                <button class="btn btn-sm" id="ive-tab-paste" title="Вставить на позицию курсора"${_tabClipboard ? '' : ' disabled'}>⎗ Вставить</button>
-            </div>`;
+            <button class="ive-tab-add" id="ive-tab-add" title="Открыть в новом табе">+</button>`;
         bar.querySelectorAll('.ive-tab').forEach(el => {
             el.addEventListener('click', e => { if (!e.target.closest('[data-tabclose]')) _switchTab(+el.dataset.tabidx); });
         });
@@ -1989,8 +2080,6 @@ export async function init() {
             btn.addEventListener('click', e => { e.stopPropagation(); _closeTab(+btn.dataset.tabclose); });
         });
         document.getElementById('ive-tab-add')?.addEventListener('click', _addTab);
-        document.getElementById('ive-tab-copy')?.addEventListener('click', _copyTabContent);
-        document.getElementById('ive-tab-paste')?.addEventListener('click', _pasteTabContent);
     }
 
     function _copyTabContent() {
@@ -2535,6 +2624,7 @@ export async function init() {
             const el = document.createElement('div');
             const isMultiSubSel = S.selSubIdxs.size > 1 && S.selSubIdxs.has(si);
             el.className = `ive-tl-sub-item${si === S.selSubIdx ? ' sel' : ''}${isMultiSubSel ? ' multi-sel' : ''}`;
+            el.dataset.sidx = si;
             el.style.left  = ((sub.start || 0) * S.pxPerSec) + 'px';
             el.style.width = w + 'px';
             el.title = sub.text || '';
