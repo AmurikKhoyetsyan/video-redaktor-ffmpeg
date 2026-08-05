@@ -5637,7 +5637,9 @@ export async function init() {
             if (S.projectId === pid) _resetState();
             renderAll(); await loadProjectsList(); return;
         }
-        if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
+        if (S.projectId) {
+            _addTab();
+        } else if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
         try {
             const r = await fetch(`/api/imgvid/projects/${pid}`);
             const d = await r.json();
