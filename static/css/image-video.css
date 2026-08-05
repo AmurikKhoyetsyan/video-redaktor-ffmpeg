@@ -268,6 +268,96 @@
     background: var(--bg1);
 }
 
+/* ── Project Tab Bar ────────────────────────────────────────────────────── */
+.ive-tab-bar {
+    display: flex;
+    align-items: center;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 6px;
+    gap: 4px;
+    min-height: 30px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.ive-tab-list {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.ive-tab-list::-webkit-scrollbar { display: none; }
+.ive-tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    white-space: nowrap;
+    max-width: 180px;
+    user-select: none;
+    transition: background .12s, color .12s;
+}
+.ive-tab:hover { background: rgba(255,255,255,.04); color: var(--text); }
+.ive-tab.active {
+    background: var(--bg1);
+    color: var(--text);
+    border-color: var(--border);
+    position: relative;
+}
+.ive-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 1px;
+    background: var(--bg1);
+}
+.ive-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 130px;
+}
+.ive-tab-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-dim);
+    padding: 1px 3px;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 3px;
+    flex-shrink: 0;
+    opacity: .6;
+}
+.ive-tab-close:hover { background: rgba(239,68,68,.25); color: #ef4444; opacity: 1; }
+.ive-tab-add {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    padding: 1px 8px;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1.3;
+    flex-shrink: 0;
+    transition: background .12s, color .12s;
+}
+.ive-tab-add:hover { background: rgba(255,255,255,.06); color: var(--text); }
+.ive-tab-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: 6px;
+}
+
 /* ── Preview ────────────────────────────────────────────────────────────── */
 .ive-preview-wrap {
     flex: 1;
