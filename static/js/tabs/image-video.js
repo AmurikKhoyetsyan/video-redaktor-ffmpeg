@@ -1957,6 +1957,7 @@ export async function init() {
             const ok = await openConfirm(`Закрыть "${name}"?\nНесохранённые изменения будут потеряны.`);
             if (!ok) return;
         }
+        _tabs[_activeTabIdx] = _snapshotTabState();
         _tabs.splice(idx, 1);
         if (_activeTabIdx > idx) _activeTabIdx--;
         else if (_activeTabIdx >= _tabs.length) _activeTabIdx = _tabs.length - 1;

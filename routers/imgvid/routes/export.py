@@ -494,6 +494,11 @@ async def export_video(
 
                 filter_complex = ";\n".join(filter_parts)
 
+                # Write filter_complex to a file to avoid Windows 32 767-char command-line limit
+                fc_script_path = os.path.join(tmp, "filter_complex.txt")
+                with open(fc_script_path, "w", encoding="utf-8") as _fc_f:
+                    _fc_f.write(filter_complex)
+
                 ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 out_name = f"imgvid_{ts}.{ext}"
                 out_path = os.path.join(OUTPUT_DIR, out_name)
@@ -501,7 +506,7 @@ async def export_video(
                 cmd = (
                     [FFMPEG, "-y", "-nostdin"]
                     + cmd_inputs
-                    + ["-filter_complex", filter_complex]
+                    + ["-filter_complex_script", fc_script_path]
                     + ["-map", f"[{final_video_label}]"]
                     + audio_map
                     + vcodec + acodec
