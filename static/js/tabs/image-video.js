@@ -1,4 +1,4 @@
-import { log }             from '../logger.js';
+﻿import { log }             from '../logger.js';
 import { toast }           from '../toast.js';
 import { synthesizeStream } from '../api.js';
 import { openConfirm, openPrompt } from '../modal.js';
@@ -6,7 +6,7 @@ import { ICONS }           from '../icons.js';
 import { events }          from '../events.js';
 
 import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS, CONTINUOUS_EFFECTS, PIP_START_EFFECTS, PIP_END_EFFECTS, PIP_CONTINUOUS_EFFECTS } from '../imgvid/constants.js';
-import { uid, eh, fmt, fmtShort, buildCSSFilter, hexToRgba, _makeTextShadow, getSnapTargets, snap } from '../imgvid/utils.js';
+import { uid, eh, fmt, fmtShort, buildCSSFilter, hexToRgba, _makeTextShadow, getSnapTargets, snap, snapToStep } from '../imgvid/utils.js';
 import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from '../imgvid/utils.js';
 import { drawWaveform, probeAudioDuration } from '../imgvid/waveform.js';
 import { createExpModal } from '../imgvid/exp-modal.js';
@@ -46,6 +46,11 @@ let _historyMinIdx =  0; // floor: undo stops here. 0 = any baseline reachable; 
 
 // ── Audio element pool ────────────────────────────────────────────────────────
 const _audioEls = new Map(); // trackId → HTMLAudioElement
+
+// ── Project tabs ──────────────────────────────────────────────────────────────
+const _tabs = [];          // array of tab state snapshots
+let _activeTabIdx = 0;
+let _tabClipboard = null;  // {clips, audioTracks, subtitles, pipLayers}
 
 function _syncAudio(t, force = false) {
     const allIds = new Set(S.audioTracks.map(x => x.id));
@@ -339,7 +344,7 @@ export async function init() {
         if (S.dirty && !confirm('Несохранённые изменения. Создать новый проект?')) return;
         _stopPlayback(); _resetState(); renderAll(); await loadProjectsList();
     });
-    projectNameEl.addEventListener('input', () => { S.projectName = projectNameEl.value; S.dirty = true; });
+    projectNameEl.addEventListener('input', () => { S.projectName = projectNameEl.value; S.dirty = true; _renderTabBar(); });
 
     // ── Media upload ──────────────────────────────────────────────────────────
     addImgBtn.addEventListener('click', () => imgInput.click());
@@ -655,7 +660,7 @@ export async function init() {
         const onMove = ev => {
             moved = true;
             const dx = (ev.clientX - sx) / rect.width * 100;
-            sub.w = Math.max(5, Math.min(100, Math.round((w0 + 2 * dx) * 10) / 10));
+            sub.w = Math.max(5, Math.min(100, snapToStep((w0 + 2 * dx), S.pxPerSec)));
             S.dirty = true; renderPreview(); if (S.selSubIdx >= 0) renderProps();
         };
         const onUp = () => {
@@ -705,7 +710,7 @@ export async function init() {
             moved = true;
             const dx = (ev.clientX - sx) / rect.width * 100;
             const dy = (ev.clientY - sy) / sc;
-            sub.w = Math.max(5, Math.min(100, Math.round((w0 + 2 * dx) * 10) / 10));
+            sub.w = Math.max(5, Math.min(100, snapToStep((w0 + 2 * dx), S.pxPerSec)));
             sub.h = Math.max(10, Math.round(h0 + 2 * dy));
             S.dirty = true; renderPreview(); if (S.selSubIdx >= 0) renderProps();
         };
@@ -739,8 +744,8 @@ export async function init() {
         const rect = (subContainer || previewContent).getBoundingClientRect();
         const dxPct = (e.clientX - _subDx0) / rect.width  * 100;
         const dyPct = (e.clientY - _subDy0) / rect.height * 100;
-        sub.x = Math.max(0, Math.min(100, Math.round((_subX0 + dxPct) * 10) / 10));
-        sub.y = Math.max(0, Math.min(100, Math.round((_subY0 + dyPct) * 10) / 10));
+        sub.x = Math.max(0, Math.min(100, snapToStep((_subX0 + dxPct), S.pxPerSec)));
+        sub.y = Math.max(0, Math.min(100, snapToStep((_subY0 + dyPct), S.pxPerSec)));
         subOverlay.style.left = sub.x + '%';
         subOverlay.style.top  = sub.y + '%';
         S.dirty = true;
@@ -1198,6 +1203,125 @@ export async function init() {
         }
     });
 
+    // ── Right-click context menu on timeline items ────────────────────────────
+    (function _initCtxMenu() {
+        const _ctx = document.createElement('div');
+        _ctx.id = 'ive-ctx-menu';
+        Object.assign(_ctx.style, {
+            position: 'fixed', zIndex: '9999', display: 'none',
+            background: '#252525', border: '1px solid #444',
+            borderRadius: '6px', padding: '4px 0', minWidth: '160px',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.6)', fontSize: '13px',
+            userSelect: 'none',
+        });
+
+        function _mkItem(label, fn) {
+            const el = document.createElement('div');
+            el.textContent = label;
+            Object.assign(el.style, { padding: '7px 16px', cursor: 'pointer', color: '#ccc' });
+            el.addEventListener('mouseenter', () => { el.style.background = '#383838'; });
+            el.addEventListener('mouseleave', () => { el.style.background = ''; });
+            el.addEventListener('mousedown', e => { e.preventDefault(); _close(); fn(); });
+            _ctx.appendChild(el);
+            return el;
+        }
+
+        _mkItem('⎘  Копировать', () => _copySelected());
+        _mkItem('✂  Вырезать',             () => _cutSelected());
+        const _pasteItem = _mkItem('⎗  Вставить', () => _pasteSelected());
+        const _extractItem = _mkItem('🎵  Извлечь аудио', async () => {
+            const clip = S.clips[S.selIdx];
+            if (!clip) return;
+            toast('Извлечение аудио…', 'info');
+            try {
+                const r = await fetch('/api/imgvid/extract-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file: clip.file }),
+                });
+                const d = await r.json();
+                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
+                const _exLane = _getNextLane();
+                const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_exLane), trimIn: 0, laneIndex: _exLane, originalDuration: d.duration || undefined };
+                S.audioTracks.push(track);
+                _pushHistory();
+                S.dirty = true;
+                renderMediaList(); renderTimeline();
+                toast('Аудио добавлено в таймлайн', 'ok');
+            } catch (ex) { toast(ex.message, 'err'); }
+        });
+
+        document.body.appendChild(_ctx);
+
+        function _close() { _ctx.style.display = 'none'; }
+
+        function _show(x, y, isVideoClip) {
+            _pasteItem.style.opacity       = _clipboard ? '1' : '0.4';
+            _pasteItem.style.pointerEvents = _clipboard ? ''  : 'none';
+            _extractItem.style.display     = isVideoClip ? '' : 'none';
+            _ctx.style.display = 'block';
+            _ctx.style.left = x + 'px';
+            _ctx.style.top  = y + 'px';
+            const r = _ctx.getBoundingClientRect();
+            if (r.right  > window.innerWidth)  _ctx.style.left = (x - r.width)  + 'px';
+            if (r.bottom > window.innerHeight) _ctx.style.top  = (y - r.height) + 'px';
+        }
+
+        document.addEventListener('mousedown', e => { if (!_ctx.contains(e.target)) _close(); }, true);
+        document.addEventListener('keydown',   e => { if (e.key === 'Escape') _close(); }, true);
+
+        tracksScroll.addEventListener('contextmenu', e => {
+            const clipEl  = e.target.closest('.ive-tl-clip');
+            const audioEl = e.target.closest('.ive-tl-audio-item');
+            const subEl   = e.target.closest('.ive-tl-sub-item');
+            const pipEl   = e.target.closest('.ive-tl-pip-item');
+            if (!clipEl && !audioEl && !subEl && !pipEl) return;
+            e.preventDefault();
+
+            let _isVideoClip = false;
+            if (clipEl) {
+                const ci = +clipEl.dataset.cidx;
+                if (S.selIdx !== ci && !S.selIdxs.has(ci)) {
+                    S.selIdx = ci;  S.selIdxs = new Set([ci]);
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selSubIdx = -1;   S.selSubIdxs = new Set();
+                    S.selPipIdx = -1;   S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+                _isVideoClip = (S.clips[S.selIdx]?.type === 'video');
+            } else if (audioEl) {
+                const ai = +audioEl.dataset.aidx;
+                if (S.selAudioIdx !== ai && !S.selAudioIdxs.has(ai)) {
+                    S.selAudioIdx = ai; S.selAudioIdxs = new Set([ai]);
+                    S.selIdx = -1;    S.selIdxs = new Set();
+                    S.selSubIdx = -1; S.selSubIdxs = new Set();
+                    S.selPipIdx = -1; S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            } else if (subEl) {
+                const si = +subEl.dataset.sidx;
+                if (S.selSubIdx !== si && !S.selSubIdxs.has(si)) {
+                    S.selSubIdx = si; S.selSubIdxs = new Set([si]);
+                    S.selIdx = -1;      S.selIdxs = new Set();
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selPipIdx = -1;   S.selPipIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            } else if (pipEl) {
+                const pi = +pipEl.dataset.pi;
+                if (S.selPipIdx !== pi && !S.selPipIdxs.has(pi)) {
+                    S.selPipIdx = pi; S.selPipIdxs = new Set([pi]);
+                    S.selIdx = -1;      S.selIdxs = new Set();
+                    S.selAudioIdx = -1; S.selAudioIdxs = new Set();
+                    S.selSubIdx = -1;   S.selSubIdxs = new Set();
+                    renderTimeline(); renderProps();
+                }
+            }
+
+            _show(e.clientX, e.clientY, _isVideoClip);
+        });
+    })();
+
     // ── Sidebar sub-tabs (Projects / Templates) ───────────────────────────────
     function _switchSidebarTab(name) {
         document.querySelectorAll('.ive-stab').forEach(b => {
@@ -1227,6 +1351,8 @@ export async function init() {
 
     await loadProjectsList();
     await loadTemplatesList();
+    _tabs.push(_snapshotTabState());
+    _activeTabIdx = 0;
     renderAll();
 
     // ── Project / Template search ─────────────────────────────────────────────
@@ -1858,9 +1984,182 @@ export async function init() {
     // Render functions
     // ══════════════════════════════════════════════════════════════════════════
 
+    // ── Tab management ────────────────────────────────────────────────────────
+
+    function _snapshotTabState() {
+        return {
+            projectId: S.projectId, projectName: S.projectName,
+            clips: JSON.parse(JSON.stringify(S.clips)),
+            audioTracks: JSON.parse(JSON.stringify(S.audioTracks)),
+            subtitles: JSON.parse(JSON.stringify(S.subtitles)),
+            pipLayers: JSON.parse(JSON.stringify(S.pipLayers.filter(p => !p._empty))),
+            selIdx: S.selIdx, selAudioIdx: S.selAudioIdx,
+            selSubIdx: S.selSubIdx, selPipIdx: S.selPipIdx,
+            activeTab: S.activeTab, dirty: S.dirty,
+            currentTime: S.currentTime, pxPerSec: S.pxPerSec,
+            previewMode: S.previewMode, previewZoom: S.previewZoom,
+            isTemplateMode: S.isTemplateMode, editingTemplateId: S.editingTemplateId,
+            trackOrder: [...(S.trackOrder || ['video', 'audio', 'subtitle', 'pip'])],
+            canvasCrop: S.canvasCrop ? { ...S.canvasCrop } : null,
+            historyStack: JSON.parse(JSON.stringify(_historyStack)),
+            histIdx: _historyIdx,
+            audioLanes: [...S.audioLanes],
+            exportSettings: (() => { try { return expModal.getSettings(); } catch { return null; } })(),
+        };
+    }
+
+    function _applyTabState(snap) {
+        _stopPlayback();
+        _pipEls.forEach(({ wrapper }) => { if (wrapper?.parentNode) wrapper.parentNode.removeChild(wrapper); });
+        _pipEls.clear();
+        _cancelCropMode();
+        if (cropBtn) cropBtn.classList.remove('ive-crop-active');
+        S.projectId = snap.projectId;
+        S.projectName = snap.projectName;
+        S.clips = snap.clips;
+        S.audioTracks = snap.audioTracks;
+        S.audioLanes = snap.audioLanes ? [...snap.audioLanes] : [...new Set(snap.audioTracks.map(t => t.laneIndex ?? 0))];
+        S.subtitles = snap.subtitles;
+        S.pipLayers = snap.pipLayers;
+        S.selIdx = snap.selIdx ?? -1;
+        S.selAudioIdx = snap.selAudioIdx ?? -1;
+        S.selSubIdx = snap.selSubIdx ?? -1;
+        S.selPipIdx = snap.selPipIdx ?? -1;
+        S.selIdxs = new Set();
+        S.selSubIdxs = new Set();
+        S.selPipIdxs = new Set();
+        S.selAudioIdxs = new Set();
+        S.activeTab = snap.activeTab || 'slide';
+        S.dirty = snap.dirty || false;
+        S.currentTime = snap.currentTime || 0;
+        S.pxPerSec = snap.pxPerSec || 80;
+        S.previewMode = snap.previewMode || 'fit';
+        S.previewZoom = snap.previewZoom || 1.0;
+        S.isTemplateMode = snap.isTemplateMode || false;
+        S.editingTemplateId = snap.editingTemplateId || null;
+        S.trackOrder = snap.trackOrder || ['video', 'audio', 'subtitle', 'pip'];
+        S.canvasCrop = snap.canvasCrop || null;
+        _historyStack.length = 0;
+        (snap.historyStack || []).forEach(h => _historyStack.push(h));
+        _historyIdx = snap.histIdx ?? -1;
+        _historyMinIdx = 0;
+        if (snap.exportSettings) {
+            expModal.applySettings(snap.exportSettings);
+            _updatePreviewSize();
+        }
+        document.querySelectorAll('.ive-ptab').forEach(b => b.classList.toggle('active', b.dataset.ptab === S.activeTab));
+        _updateSaveBtn();
+        renderAll();
+    }
+
+    function _switchTab(idx) {
+        if (idx === _activeTabIdx || idx < 0 || idx >= _tabs.length) return;
+        _tabs[_activeTabIdx] = _snapshotTabState();
+        _activeTabIdx = idx;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    function _addTab() {
+        _tabs[_activeTabIdx] = _snapshotTabState();
+        _tabs.push({
+            projectId: null, projectName: 'Новый проект',
+            clips: [], audioTracks: [], subtitles: [], pipLayers: [],
+            selIdx: -1, selAudioIdx: -1, selSubIdx: -1, selPipIdx: -1,
+            activeTab: 'slide', dirty: false, currentTime: 0, pxPerSec: 80,
+            previewMode: 'fit', previewZoom: 1.0,
+            isTemplateMode: false, editingTemplateId: null,
+            trackOrder: ['video', 'audio', 'subtitle', 'pip'],
+            canvasCrop: null, historyStack: [], histIdx: -1,
+        });
+        _activeTabIdx = _tabs.length - 1;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    async function _closeTab(idx) {
+        if (_tabs.length <= 1) { toast('Нельзя закрыть последний таб', 'warn'); return; }
+        const isDirty = idx === _activeTabIdx ? S.dirty : _tabs[idx].dirty;
+        const name    = idx === _activeTabIdx ? S.projectName : _tabs[idx].projectName;
+        if (isDirty) {
+            const ok = await openConfirm(`Закрыть "${name}"?\nНесохранённые изменения будут потеряны.`);
+            if (!ok) return;
+        }
+        _tabs[_activeTabIdx] = _snapshotTabState();
+        _tabs.splice(idx, 1);
+        if (_activeTabIdx > idx) _activeTabIdx--;
+        else if (_activeTabIdx >= _tabs.length) _activeTabIdx = _tabs.length - 1;
+        _applyTabState(_tabs[_activeTabIdx]);
+    }
+
+    function _renderTabBar() {
+        const bar = document.getElementById('ive-tab-bar');
+        if (!bar || !_tabs.length) return;
+        const list = _tabs.map((t, i) => {
+            const name    = i === _activeTabIdx ? S.projectName : (t.projectName || 'Новый проект');
+            const isDirty = i === _activeTabIdx ? S.dirty : t.dirty;
+            return `<div class="ive-tab${i === _activeTabIdx ? ' active' : ''}" data-tabidx="${i}" title="${eh(name)}">
+                <span class="ive-tab-name">${eh(name)}${isDirty ? ' •' : ''}</span>
+                ${_tabs.length > 1 ? `<button class="ive-tab-close" data-tabclose="${i}">×</button>` : ''}
+            </div>`;
+        }).join('');
+        bar.innerHTML = `
+            <div class="ive-tab-list">${list}</div>
+            <button class="ive-tab-add" id="ive-tab-add" title="Открыть в новом табе">+</button>`;
+        bar.querySelectorAll('.ive-tab').forEach(el => {
+            el.addEventListener('click', e => { if (!e.target.closest('[data-tabclose]')) _switchTab(+el.dataset.tabidx); });
+        });
+        bar.querySelectorAll('[data-tabclose]').forEach(btn => {
+            btn.addEventListener('click', e => { e.stopPropagation(); _closeTab(+btn.dataset.tabclose); });
+        });
+        document.getElementById('ive-tab-add')?.addEventListener('click', _addTab);
+    }
+
+    function _copyTabContent() {
+        _tabClipboard = {
+            clips:       JSON.parse(JSON.stringify(S.clips)),
+            audioTracks: JSON.parse(JSON.stringify(S.audioTracks)),
+            subtitles:   JSON.parse(JSON.stringify(S.subtitles)),
+            pipLayers:   JSON.parse(JSON.stringify(S.pipLayers.filter(p => !p._empty))),
+        };
+        const parts = [];
+        if (_tabClipboard.clips.length)       parts.push(_tabClipboard.clips.length + ' клип.');
+        if (_tabClipboard.audioTracks.length) parts.push(_tabClipboard.audioTracks.length + ' аудио');
+        if (_tabClipboard.subtitles.length)   parts.push(_tabClipboard.subtitles.length + ' субт.');
+        if (_tabClipboard.pipLayers.length)   parts.push(_tabClipboard.pipLayers.length + ' PIP');
+        toast('Скопировано: ' + (parts.join(', ') || 'пусто'), 'ok');
+        _renderTabBar();
+    }
+
+    function _pasteTabContent() {
+        if (!_tabClipboard) { toast('Буфер пуст', 'warn'); return; }
+        const t = S.currentTime;
+        // Find insertion index for clips: after the clip playing at currentTime
+        let insertIdx = S.clips.length;
+        let cum = 0;
+        for (let i = 0; i < S.clips.length; i++) {
+            cum += S.clips[i].duration || 3;
+            if (t < cum) { insertIdx = i + 1; break; }
+        }
+        const newClips = _tabClipboard.clips.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid() }));
+        S.clips.splice(insertIdx, 0, ...newClips);
+        for (const a of _tabClipboard.audioTracks) {
+            S.audioTracks.push({ ...JSON.parse(JSON.stringify(a)), id: uid(), startOffset: (a.startOffset || 0) + t });
+        }
+        for (const sub of _tabClipboard.subtitles) {
+            S.subtitles.push({ ...JSON.parse(JSON.stringify(sub)), id: uid(), start: (sub.start || 0) + t, end: (sub.end || 3) + t });
+        }
+        for (const pip of _tabClipboard.pipLayers) {
+            S.pipLayers.push({ ...JSON.parse(JSON.stringify(pip)), id: uid() });
+        }
+        S.dirty = true;
+        _pushHistory();
+        renderAll();
+        toast(`Вставлено на ${t.toFixed(2)}с`, 'ok');
+    }
+
     function renderAll() {
         renderMediaList(); renderTimeline(); renderPreview(); renderProps();
         projectNameEl.value = S.projectName; _updateTransportUI();
+        _renderTabBar();
     }
 
     // ── Media list (sidebar) ──────────────────────────────────────────────────
@@ -2060,7 +2359,7 @@ export async function init() {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    clip.duration = Math.max(0.5, Math.round((sd + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                    clip.duration = Math.max(0.5, snapToStep((sd + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                     S.dirty = true; renderTimeline(); renderMediaList(); if (i === S.selIdx) renderProps();
                 };
                 const onUp = () => {
@@ -2079,9 +2378,9 @@ export async function init() {
                     let moved = false;
                     const onMove = ev => {
                         moved = true;
-                        const newIn = Math.max(0, Math.round((sTrimIn + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
+                        const newIn = Math.max(0, snapToStep((sTrimIn + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
                         clip.trimIn   = newIn;
-                        clip.duration = Math.max(0.5, Math.round((outPt - newIn) * 10) / 10);
+                        clip.duration = Math.max(0.5, snapToStep((outPt - newIn), S.pxPerSec));
                         S.dirty = true; renderTimeline(); renderMediaList(); if (i === S.selIdx) renderProps();
                     };
                     const onUp = () => {
@@ -2251,7 +2550,7 @@ export async function init() {
                         const laneShift = Math.round((ev.clientY - sy) / rowH);
                         _dragInitAudio.forEach(({ idx, startOffset, laneIndex: initLane }) => {
                             if (!S.audioTracks[idx]) return;
-                            S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                            S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                             if (laneShift !== 0) {
                                 const newLane = Math.max(0, initLane + laneShift);
                                 S.audioTracks[idx].laneIndex = newLane;
@@ -2259,13 +2558,13 @@ export async function init() {
                         });
                         _dragInitSub.forEach(({ idx, start, dur }) => {
                             const s = S.subtitles[idx]; if (!s) return;
-                            const newStart = Math.max(0, Math.round((start + dx) * 10) / 10);
-                            s.start = newStart; s.end = Math.round((newStart + dur) * 10) / 10;
+                            const newStart = Math.max(0, snapToStep((start + dx), S.pxPerSec));
+                            s.start = newStart; s.end = snapToStep((newStart + dur), S.pxPerSec);
                         });
                         _dragInitPip.forEach(({ idx, startTime, dur }) => {
                             const p = S.pipLayers[idx]; if (!p) return;
-                            const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                            p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                            const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                            p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                         });
                         S.dirty = true; renderTimeline(); renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
@@ -2291,11 +2590,11 @@ export async function init() {
                         const scrollDx = tracksScroll.scrollLeft - scrollStart;
                         const dx = (ev.clientX - sx + scrollDx) / S.pxPerSec;
                         const maxTrimIn = (track.originalDuration || 9999) - 0.5;
-                        const newOff    = Math.max(0, Math.round((sOff + dx) * 10) / 10);
-                        const newTrimIn = Math.max(0, Math.min(maxTrimIn, Math.round((sTrimIn + dx) * 10) / 10));
+                        const newOff    = Math.max(0, snapToStep((sOff + dx), S.pxPerSec));
+                        const newTrimIn = Math.max(0, Math.min(maxTrimIn, snapToStep((sTrimIn + dx), S.pxPerSec)));
                         track.startOffset = newOff;
                         track.trimIn      = newTrimIn;
-                        track.duration    = Math.max(0.5, Math.round((outPt - newOff) * 10) / 10);
+                        track.duration    = Math.max(0.5, snapToStep((outPt - newOff), S.pxPerSec));
                         S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
                         if (ev.clientX > scR.right - 50) tracksScroll.scrollLeft += 10;
@@ -2318,7 +2617,7 @@ export async function init() {
                         moved = true;
                         const scrollDx = tracksScroll.scrollLeft - scrollStart;
                         const maxDur = (track.originalDuration || 9999) - (track.trimIn || 0);
-                        track.duration = Math.max(0.5, Math.min(maxDur, Math.round((sDur + (ev.clientX - sx + scrollDx) / S.pxPerSec) * 10) / 10));
+                        track.duration = Math.max(0.5, Math.min(maxDur, snapToStep((sDur + (ev.clientX - sx + scrollDx) / S.pxPerSec), S.pxPerSec)));
                         S.dirty = true; renderTimeline(); if (i === S.selAudioIdx) renderProps();
                         const scR = tracksScroll.getBoundingClientRect();
                         if (ev.clientX > scR.right - 50) tracksScroll.scrollLeft += 10;
@@ -2356,6 +2655,7 @@ export async function init() {
             const el = document.createElement('div');
             const isMultiSubSel = S.selSubIdxs.size > 1 && S.selSubIdxs.has(si);
             el.className = `ive-tl-sub-item${si === S.selSubIdx ? ' sel' : ''}${isMultiSubSel ? ' multi-sel' : ''}`;
+            el.dataset.sidx = si;
             el.style.left  = ((sub.start || 0) * S.pxPerSec) + 'px';
             el.style.width = w + 'px';
             el.title = sub.text || '';
@@ -2412,18 +2712,18 @@ export async function init() {
                         const s2 = S.subtitles[idx]; if (!s2) return;
                         let newStart = Math.max(0, start0 + dx);
                         if (_dragSubIds.length === 1 && _dragInitAudio.length === 0 && _dragInitPip.length === 0) newStart = _snap(newStart, snapTargets);
-                        s2.start = Math.round(newStart * 10) / 10;
-                        s2.end   = Math.round((newStart + d) * 10) / 10;
+                        s2.start = snapToStep(newStart, S.pxPerSec);
+                        s2.end   = snapToStep((newStart + d), S.pxPerSec);
                     });
                     _dragInitAudio.forEach(({ idx, startOffset }) => {
-                        if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, Math.round((startOffset + dx) * 10) / 10);
+                        if (S.audioTracks[idx]) S.audioTracks[idx].startOffset = Math.max(0, snapToStep((startOffset + dx), S.pxPerSec));
                     });
                     _dragInitPip.forEach(({ idx, startTime, dur }) => {
                         const p = S.pipLayers[idx]; if (!p) return;
-                        const newStart = Math.max(0, Math.round((startTime + dx) * 10) / 10);
-                        p.startTime = newStart; p.endTime = Math.round((newStart + dur) * 10) / 10;
+                        const newStart = Math.max(0, snapToStep((startTime + dx), S.pxPerSec));
+                        p.startTime = newStart; p.endTime = snapToStep((newStart + dur), S.pxPerSec);
                     });
-                    S.dirty = true; renderTimeline();
+                    S.dirty = true; renderTimeline(); if (S.selSubIdx >= 0) renderProps();
                 };
                 const onUp = () => {
                     document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
@@ -2441,8 +2741,8 @@ export async function init() {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    sub.end = Math.max((sub.start || 0) + 0.1, Math.round((e0 + (ev.clientX - sx) / S.pxPerSec) * 10) / 10);
-                    S.dirty = true; renderTimeline();
+                    sub.end = Math.max((sub.start || 0) + 0.1, snapToStep((e0 + (ev.clientX - sx) / S.pxPerSec), S.pxPerSec));
+                    S.dirty = true; renderTimeline(); if (S.selSubIdx >= 0) renderProps();
                 };
                 const onUp = () => {
                     document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
@@ -2572,6 +2872,8 @@ export async function init() {
             const videoTime = local + (clip.trimIn || 0);
             const vSpeed    = clip.speed ?? 1;
             if (previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
+            previewVideo.volume = clip.clipVolume ?? 1;
+            previewVideo.muted  = !!clip.muteAudio;
             if (inTrans) {
                 // Outgoing clip at its last frame — always frozen during transition
                 if (!previewVideo.paused) previewVideo.pause();
@@ -3068,15 +3370,15 @@ export async function init() {
         <div class="ive-sub-body">
         <label class="ive-label">Текст<textarea class="ive-textarea" data-sf="text" data-si="${si}" rows="2">${eh(sub.text || '')}</textarea></label>
         <div class="ive-row2">
-            <label class="ive-label">Нач.(с)<input class="ive-input" type="number" data-sf="start" data-si="${si}" min="0" step="0.1" value="${(sub.start ?? 0).toFixed(1)}"></label>
-            <label class="ive-label">Кон.(с)<input class="ive-input" type="number" data-sf="end"   data-si="${si}" min="0" step="0.1" value="${(sub.end ?? 3).toFixed(1)}"></label>
+            <label class="ive-label">Нач.(с)<input class="ive-input" type="number" data-sf="start" data-si="${si}" min="0" step="0.001" value="${(sub.start ?? 0).toFixed(3)}"></label>
+            <label class="ive-label">Кон.(с)<input class="ive-input" type="number" data-sf="end"   data-si="${si}" min="0" step="0.001" value="${(sub.end ?? 3).toFixed(3)}"></label>
         </div>
         <div class="ive-row2">
-            <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" value="${sub.x ?? 50}"></label>
-            <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" value="${sub.y ?? 88}"></label>
+            <label class="ive-label">X%<input class="ive-input" type="number" data-sf="x" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.x ?? 50).toFixed(3)}"></label>
+            <label class="ive-label">Y%<input class="ive-input" type="number" data-sf="y" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.y ?? 88).toFixed(3)}"></label>
         </div>
         <div class="ive-row2">
-            <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="1" value="${sub.w || 0}" placeholder="Авто"></label>
+            <label class="ive-label" title="Ширина (0 = авто)">Width%<input class="ive-input" type="number" data-sf="w" data-si="${si}" min="0" max="100" step="0.001" value="${(sub.w || 0).toFixed(3)}" placeholder="Авто"></label>
             <label class="ive-label" title="Высота в пикселях (0 = авто)">Height px<input class="ive-input" type="number" data-sf="h" data-si="${si}" min="0" max="2000" step="10" value="${sub.h || 0}" placeholder="Авто"></label>
         </div>
         <div class="ive-row2">
@@ -3238,7 +3540,7 @@ export async function init() {
 
         $('pv-add-sub').addEventListener('click', () => {
             const t = S.currentTime;
-            S.subtitles.push({ id: uid(), text: '', start: Math.round(t * 10) / 10, end: Math.round((t + 3) * 10) / 10,
+            S.subtitles.push({ id: uid(), text: '', start: snapToStep(t, S.pxPerSec), end: snapToStep((t + 3), S.pxPerSec),
                 x: 50, y: 88, w: 0, h: 0, fontFamily: 'Arial', fontSize: 40, color: '#ffffff',
                 outline: 2, outlineColor: '#000000', shadow: 1, shadowColor: '#000000',
                 bold: false, italic: false, underline: false,
@@ -3386,9 +3688,9 @@ export async function init() {
             const origMax = track.originalDuration || 9999;
             const newTrimIn = Math.max(0, Math.min(origMax - 0.5, v));
             const prevEnd = (track.trimIn || 0) + (track.duration !== undefined ? track.duration : 0);
-            track.trimIn = Math.round(newTrimIn * 10) / 10;
+            track.trimIn = snapToStep(newTrimIn, S.pxPerSec);
             if (prevEnd > track.trimIn) {
-                track.duration = Math.max(0.5, Math.round((prevEnd - track.trimIn) * 10) / 10);
+                track.duration = Math.max(0.5, snapToStep((prevEnd - track.trimIn), S.pxPerSec));
             }
             _syncTrimFields();
             S.dirty = true; renderTimeline();
@@ -3400,7 +3702,7 @@ export async function init() {
             const origMax = track.originalDuration || 9999;
             const trimIn = track.trimIn || 0;
             const newEnd = Math.max(trimIn + 0.5, Math.min(origMax, v));
-            track.duration = Math.max(0.5, Math.round((newEnd - trimIn) * 10) / 10);
+            track.duration = Math.max(0.5, snapToStep((newEnd - trimIn), S.pxPerSec));
             _syncTrimFields();
             S.dirty = true; renderTimeline();
         });
@@ -3557,7 +3859,13 @@ export async function init() {
                 </div>
                 <div id="pv-speed-display" style="font-size:11px;color:var(--text-dim)">${(clip.speed??1)}×</div>
             </label>
-            ${isVideo ? `<label class="ive-toggle-row ive-label">Убрать аудио видео
+            ${isVideo ? `<label class="ive-label">Громкость видео
+                <div class="ive-range-row">
+                    <input class="ive-range" type="range" id="pv-clip-vol-range" min="0" max="100" step="1" value="${Math.round((clip.clipVolume ?? 1) * 100)}">
+                    <span id="pv-clip-vol-display" style="font-size:11px;color:var(--text-dim);min-width:36px;text-align:right">${Math.round((clip.clipVolume ?? 1) * 100)}%</span>
+                </div>
+            </label>
+            <label class="ive-toggle-row ive-label">Убрать аудио видео
                 <input class="ive-toggle" type="checkbox" id="pv-mute-audio"${clip.muteAudio ? ' checked' : ''}>
             </label>
             <label class="ive-label">Вход (с)
@@ -3699,7 +4007,7 @@ export async function init() {
             const dispEl = $('pv-speed-display');
             if (dispEl) dispEl.textContent = clamped + '×';
             if (clip.originalDuration !== undefined) {
-                clip.duration = Math.max(0.5, Math.round((clip.originalDuration / clamped) * 10) / 10);
+                clip.duration = Math.max(0.5, snapToStep((clip.originalDuration / clamped), S.pxPerSec));
                 const durEl = $('pv-dur');
                 if (durEl) durEl.value = clip.duration;
             }
@@ -3711,8 +4019,20 @@ export async function init() {
             if (isFinite(v) && v > 0) _applyVideoSpeed(v);
         });
         if (isVideo) {
+            const _applyClipVol = v => {
+                clip.clipVolume = v;
+                previewVideo.volume = v;
+                S.dirty = true;
+            };
+            $('pv-clip-vol-range')?.addEventListener('input', () => {
+                const v = parseFloat($('pv-clip-vol-range').value);
+                const d = document.getElementById('pv-clip-vol-display');
+                if (d) d.textContent = v + '%';
+                _applyClipVol(v / 100);
+            });
             $('pv-mute-audio')?.addEventListener('change', e => {
                 clip.muteAudio = e.target.checked;
+                previewVideo.muted = e.target.checked;
                 S.dirty = true;
             });
             $('pv-trimin')?.addEventListener('change', e => {
@@ -3729,6 +4049,7 @@ export async function init() {
                 c.endEffect        = JSON.parse(JSON.stringify(clip.endEffect        || {}));
                 c.continuousEffect = JSON.parse(JSON.stringify(clip.continuousEffect || {}));
                 c.speed      = clip.speed;
+                c.clipVolume = clip.clipVolume;
                 c.muteAudio  = clip.muteAudio;
                 c.trimIn     = clip.trimIn;
             });
@@ -5459,7 +5780,9 @@ export async function init() {
             if (S.projectId === pid) _resetState();
             renderAll(); await loadProjectsList(); return;
         }
-        if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
+        if (S.projectId) {
+            _addTab();
+        } else if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
         try {
             const r = await fetch(`/api/imgvid/projects/${pid}`);
             const d = await r.json();
