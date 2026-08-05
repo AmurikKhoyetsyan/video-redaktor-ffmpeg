@@ -1229,14 +1229,36 @@ export async function init() {
         _mkItem('⎘  Копировать', () => _copySelected());
         _mkItem('✂  Вырезать',             () => _cutSelected());
         const _pasteItem = _mkItem('⎗  Вставить', () => _pasteSelected());
+        const _extractItem = _mkItem('🎵  Извлечь аудио', async () => {
+            const clip = S.clips[S.selIdx];
+            if (!clip) return;
+            toast('Извлечение аудио…', 'info');
+            try {
+                const r = await fetch('/api/imgvid/extract-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file: clip.file }),
+                });
+                const d = await r.json();
+                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
+                const _exLane = _getNextLane();
+                const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_exLane), trimIn: 0, laneIndex: _exLane, originalDuration: d.duration || undefined };
+                S.audioTracks.push(track);
+                _pushHistory();
+                S.dirty = true;
+                renderMediaList(); renderTimeline();
+                toast('Аудио добавлено в таймлайн', 'ok');
+            } catch (ex) { toast(ex.message, 'err'); }
+        });
 
         document.body.appendChild(_ctx);
 
         function _close() { _ctx.style.display = 'none'; }
 
-        function _show(x, y) {
+        function _show(x, y, isVideoClip) {
             _pasteItem.style.opacity       = _clipboard ? '1' : '0.4';
             _pasteItem.style.pointerEvents = _clipboard ? ''  : 'none';
+            _extractItem.style.display     = isVideoClip ? '' : 'none';
             _ctx.style.display = 'block';
             _ctx.style.left = x + 'px';
             _ctx.style.top  = y + 'px';
@@ -1256,6 +1278,7 @@ export async function init() {
             if (!clipEl && !audioEl && !subEl && !pipEl) return;
             e.preventDefault();
 
+            let _isVideoClip = false;
             if (clipEl) {
                 const ci = +clipEl.dataset.cidx;
                 if (S.selIdx !== ci && !S.selIdxs.has(ci)) {
@@ -1265,6 +1288,7 @@ export async function init() {
                     S.selPipIdx = -1;   S.selPipIdxs = new Set();
                     renderTimeline(); renderProps();
                 }
+                _isVideoClip = (S.clips[S.selIdx]?.type === 'video');
             } else if (audioEl) {
                 const ai = +audioEl.dataset.aidx;
                 if (S.selAudioIdx !== ai && !S.selAudioIdxs.has(ai)) {
@@ -1294,7 +1318,7 @@ export async function init() {
                 }
             }
 
-            _show(e.clientX, e.clientY);
+            _show(e.clientX, e.clientY, _isVideoClip);
         });
     })();
 
@@ -1979,6 +2003,7 @@ export async function init() {
             canvasCrop: S.canvasCrop ? { ...S.canvasCrop } : null,
             historyStack: JSON.parse(JSON.stringify(_historyStack)),
             histIdx: _historyIdx,
+            audioLanes: [...S.audioLanes],
             exportSettings: (() => { try { return expModal.getSettings(); } catch { return null; } })(),
         };
     }
@@ -1993,6 +2018,7 @@ export async function init() {
         S.projectName = snap.projectName;
         S.clips = snap.clips;
         S.audioTracks = snap.audioTracks;
+        S.audioLanes = snap.audioLanes ? [...snap.audioLanes] : [...new Set(snap.audioTracks.map(t => t.laneIndex ?? 0))];
         S.subtitles = snap.subtitles;
         S.pipLayers = snap.pipLayers;
         S.selIdx = snap.selIdx ?? -1;
@@ -3836,7 +3862,7 @@ export async function init() {
             ${isVideo ? `<label class="ive-label">Громкость видео
                 <div class="ive-range-row">
                     <input class="ive-range" type="range" id="pv-clip-vol-range" min="0" max="100" step="1" value="${Math.round((clip.clipVolume ?? 1) * 100)}">
-                    <input class="ive-input" id="pv-clip-vol-input" type="number" min="0" max="100" step="1" style="width:60px;flex-shrink:0" value="${Math.round((clip.clipVolume ?? 1) * 100)}">
+                    <span id="pv-clip-vol-display" style="font-size:11px;color:var(--text-dim);min-width:36px;text-align:right">${Math.round((clip.clipVolume ?? 1) * 100)}%</span>
                 </div>
             </label>
             <label class="ive-toggle-row ive-label">Убрать аудио видео
@@ -4000,12 +4026,8 @@ export async function init() {
             };
             $('pv-clip-vol-range')?.addEventListener('input', () => {
                 const v = parseFloat($('pv-clip-vol-range').value);
-                $('pv-clip-vol-input').value = v;
-                _applyClipVol(v / 100);
-            });
-            $('pv-clip-vol-input')?.addEventListener('change', () => {
-                const v = Math.min(100, Math.max(0, parseFloat($('pv-clip-vol-input').value) || 0));
-                $('pv-clip-vol-range').value = v;
+                const d = document.getElementById('pv-clip-vol-display');
+                if (d) d.textContent = v + '%';
                 _applyClipVol(v / 100);
             });
             $('pv-mute-audio')?.addEventListener('change', e => {
