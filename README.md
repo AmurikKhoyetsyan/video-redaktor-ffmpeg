@@ -113,8 +113,21 @@ VideoRedaktor/
 │   ├── index.html
 │   ├── css/
 │   └── js/
-│       ├── imgvid/             — Editor core modules (state, timeline, preview…)
-│       └── …
+│       ├── tabs/
+│       │   └── image-video.js  — Editor coordinator (delegates to imgvid/ modules)
+│       └── imgvid/             — Editor modules
+│           ├── state.js        — Shared state singleton S, audio pool
+│           ├── history.js      — Undo/redo stack management
+│           ├── preview.js      — Preview zoom and size calculation
+│           ├── export.js       — Export logic and SSE progress
+│           ├── constants.js    — Transitions, effects, codecs, fonts
+│           ├── utils.js        — uid, fmt, snap, totalDur, buildCSSFilter…
+│           ├── waveform.js     — Waveform drawing, audio duration probe
+│           ├── exp-modal.js    — Export settings dialog
+│           └── services/       — Backend API service layer
+│               ├── upload.js   — File upload (images, clips, audio, PIP)
+│               ├── project.js  — Project CRUD, save/load archives
+│               └── template.js — Template CRUD, save/load .vproject archives
 └── docs/
     ├── api.md                  — REST API reference
     ├── architecture.md         — Backend & frontend architecture

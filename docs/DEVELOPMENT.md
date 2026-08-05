@@ -36,6 +36,22 @@ uvicorn app:app --reload --port 7861
 
 ---
 
+## Frontend module conventions
+
+The frontend is split into **coordinator**, **modules**, and **service layer**:
+
+- **`static/js/tabs/image-video.js`** — coordinator. Handles DOM setup and event wiring. Never calls `fetch()` directly (except the fire-and-forget cancel endpoint).
+- **`static/js/imgvid/*.js`** — editor modules (`history`, `preview`, `export`, etc.). Each is initialised with `init(dom, callbacks)` and operates on the shared state `S`.
+- **`static/js/imgvid/services/*.js`** — service layer. Every backend API call lives here. Functions return `null` on HTTP error (and toast the message internally), so callers just check `if (!result) return`.
+
+**When adding a new API endpoint:**
+
+1. Add the function to the appropriate service file (`upload.js`, `project.js`, or `template.js`).
+2. Call it from the coordinator or a module — never add `fetch()` calls to the coordinator directly.
+3. If the new endpoint belongs to a new domain, create a new `services/mymodule.js` following the same pattern.
+
+---
+
 ## Adding a new visual effect
 
 Visual effects are color/filter adjustments applied to individual slides.
@@ -290,7 +306,13 @@ Get-Content ".outputs\logs\$(Get-Date -Format 'yyyy-MM-dd').log" -Wait
 | `routers/imgvid/routes/projects.py` | Project CRUD |
 | `routers/imgvid/routes/templates.py` | Template CRUD |
 | `routers/imgvid/routes/project_files.py` | `.project`/`.vproject` archive routes |
-| `static/js/imgvid/state.js` | Shared editor state `S`, undo/redo |
+| `static/js/tabs/image-video.js` | Editor coordinator: DOM init, event wiring, delegates to modules |
+| `static/js/imgvid/state.js` | Shared state singleton `S`, audio pool, `syncAudio()` |
+| `static/js/imgvid/history.js` | Undo/redo stack: `push()`, `undo()`, `redo()`, `clear()` |
+| `static/js/imgvid/preview.js` | Preview zoom and size: `applyZoom()`, `updatePreviewSize()` |
+| `static/js/imgvid/export.js` | Export flow and SSE progress: `startExport()` |
 | `static/js/imgvid/constants.js` | All effect/transition/codec lists |
 | `static/js/imgvid/timeline.js` | Timeline rendering and interactions |
-| `static/js/imgvid/export.js` | Export dialog and SSE progress |
+| `static/js/imgvid/services/upload.js` | Upload API: images, clips, audio, PIP |
+| `static/js/imgvid/services/project.js` | Project API: CRUD, archives, extract-audio |
+| `static/js/imgvid/services/template.js` | Template API: CRUD, `.vproject` archives |
