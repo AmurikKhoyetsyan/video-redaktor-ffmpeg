@@ -52,7 +52,7 @@ videoRedaktor/
         image-video.js     — Editor tab: full image/video editor UI init and coordination
       imgvid/
         constants.js       — TRANSITIONS (22), EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS
-        state.js           — Shared state object S, undo stack, audio element pool, syncAudio()
+        state.js           — Shared state S (clips, audioTracks, subtitles, pipLayers, selection, playback); _historyStack/_hist for undo/redo; _audioEls pool; syncAudio()
         utils.js           — uid, eh, fmt, fmtShort, totalDur, clipAtTime, buildCSSFilter, snap
         waveform.js        — drawWaveform() with cached peaks, probeAudioDuration()
         props.js           — Property panels: slide / audio / subtitle / PIP
@@ -203,24 +203,46 @@ The frontend sends client-side log messages to `POST /api/log` which calls `app_
 
 ```js
 S = {
-  slides: [],        // video/image clips
-  audio: [],         // audio tracks
-  subtitles: [],     // subtitle objects
-  pip: [],           // PIP layers
-  trackOrder: [...], // visual layer order
-  exportSettings: {}, 
-  canvasCrop: null,
-  currentIndex: -1,  // selected slide index
-  selectedAudioId: null,
-  selectedSubId: null,
-  selectedPipId: null,
-  playing: false,
+  projectId: null,
+  projectName: 'Новый проект',
+  clips: [],           // video/image clips on the timeline
+  audioTracks: [],     // audio tracks
+  subtitles: [],       // subtitle objects
+  pipLayers: [],       // PIP layers
+
+  // Single selection (index into respective array, -1 = none)
+  selIdx: -1,
+  selAudioIdx: -1,
+  selSubIdx: -1,
+  selPipIdx: -1,
+
+  // Multi-selection (Set of indices, populated on Ctrl+click)
+  selIdxs: new Set(),
+  selSubIdxs: new Set(),
+  selPipIdxs: new Set(),
+  selAudioIdxs: new Set(),
+
+  activeTab: 'slide',  // current property-panel tab
+  dirty: false,        // unsaved changes flag
+
+  // Playback
   currentTime: 0,
-  zoom: 1,           // timeline zoom
-  previewZoom: 'fit',
-  undoStack: [],
-  redoStack: [],
+  isPlaying: false,
+
+  // Timeline
+  pxPerSec: 80,        // zoom: pixels per second
+
+  // Preview
+  previewMode: 'fit',  // 'fit' | 'original' | 'custom'
+  previewZoom: 1.0,    // CSS scale factor
+  previewW: 0,
+  previewH: 0,
+
+  // Template edit mode
+  isTemplateMode: false,
+  editingTemplateId: null,
 }
 ```
 
-Undo/redo is implemented via snapshot cloning of the `S` object on every mutating action.
+Undo/redo history is stored in a separate exported array `_historyStack` with a cursor `_hist.idx`.
+Each mutating action pushes a deep-clone snapshot of `S`; undo/redo restores by index.

@@ -52,15 +52,15 @@ The server starts on **http://127.0.0.1:7861** and opens a browser tab automatic
 | Category | Details |
 |----------|---------|
 | **Timeline** | Multi-track: video/images, audio tracks, subtitles, PIP layers |
-| **Transitions** | 22 types — fade, dissolve, slide, wipe, zoom, pixelize, radial, hblur, fadegrays, and more |
-| **Visual effects** | 16 effects — brightness, contrast, saturation, blur, sharpen, grayscale, sepia, vignette, invert, film grain, and more |
-| **Start/End effects** | Per-clip entry/exit animations: fade, zoom, slide, rotate, bounce, pop, elastic, flip, reveal |
-| **Continuous effects** | Ken Burns (4 variants), pulse, shake, float, zoom-breathe, rotate-slow, wiggle, drift, heartbeat, swing, spin-fast |
-| **Subtitles** | Full styling, positioning, animations (fade, slide, typewriter, zoom-in), karaoke word-timing |
-| **Audio** | Multiple tracks, volume, speed, fade, trim, start offset, 14 sound effects |
+| **Transitions** | 23 types — fade, dissolve, slide, wipe, zoom, pixelize, radial, hblur, fadegrays, circle, and more |
+| **Visual effects** | 16 effects — brightness, contrast, saturation, exposure, gamma, temperature, blur, sharpen, grayscale, sepia, vignette, invert, film grain, noise, vintage, noir |
+| **Start/End effects** | 16 per-clip entry/exit animations: fade, zoom, slide, rotate, bounce, pop, elastic, flip (H+V), blur, reveal |
+| **Continuous effects** | 15 effects — Ken Burns (4 variants), pulse, heartbeat, shake, wiggle, float, drift, zoom-breathe, rotate-slow, swing, spin-fast |
+| **Subtitles** | Full styling, positioning, 7 animations (fade, slide, typewriter, zoom-in), karaoke word-timing |
+| **Audio** | Multiple tracks, volume, speed, fade, trim, start offset, 14 sound effects, per-track audio channels and sample rate |
 | **PIP** | Picture-in-picture layers with opacity, position, effects, time window |
 | **Canvas crop** | Crop output canvas to any region before export |
-| **Export formats** | MP4, MOV, MKV, WebM, AVI, GIF, OGV, FLV, WMV, MPEG; audio-only: MP3, WAV, FLAC, AAC, OGG |
+| **Export formats** | MP4, MOV, MKV, M4V, WebM, AVI, GIF, OGV, FLV, WMV, MPEG; audio-only: MP3, WAV, FLAC, AAC, OGG, M4A, Opus |
 | **Codecs** | H.264, H.265 (HEVC), VP9, VP8, AV1, ProRes, MPEG-4, Theora, WMV2, MPEG-2 |
 | **Projects** | Save/load JSON, export/import `.project` archives (ZIP with embedded media) |
 | **Templates** | Save as reusable template, apply with drag-and-drop slot filling, `.vproject` archive format |
