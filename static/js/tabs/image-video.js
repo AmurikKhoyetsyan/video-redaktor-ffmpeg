@@ -1,6 +1,5 @@
 ﻿import { log }             from '../logger.js';
 import { toast }           from '../toast.js';
-import { synthesizeStream } from '../api.js';
 import { openConfirm, openPrompt } from '../modal.js';
 import { ICONS }           from '../icons.js';
 import { events }          from '../events.js';
@@ -11,83 +10,33 @@ import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from '../imgvid/
 import { drawWaveform, probeAudioDuration } from '../imgvid/waveform.js';
 import { createExpModal } from '../imgvid/exp-modal.js';
 
-// ── State ─────────────────────────────────────────────────────────────────────
-const S = {
-    projectId: null, projectName: 'Новый проект',
-    clips: [], audioTracks: [], subtitles: [],
-    selIdx: -1, selAudioIdx: -1, selSubIdx: -1, selPipIdx: -1, selIdxs: new Set(),
-    selSubIdxs: new Set(), selPipIdxs: new Set(), selAudioIdxs: new Set(),
-    activeTab: 'slide', dirty: false,
-    // Playback
-    currentTime: 0, isPlaying: false,
-    _playStartReal: 0, _playStartProject: 0, _rafId: null, _syncTick: 0,
-    // Timeline
-    pxPerSec: 80,
-    // Preview zoom
-    previewMode: 'fit',   // 'fit' | 'original' | 'custom'
-    previewZoom: 1.0,     // actual CSS scale factor
-    // PIP layers
-    pipLayers: [],
-    audioLanes: [],
-    // Track display order: first = topmost visual row = highest render layer
-    trackOrder: ['video', 'audio', 'subtitle', 'pip'],
-    // Preview dimensions (set by _updatePreviewSize, used for subtitle scaling)
-    previewH: 0, previewW: 0,
-    // Template edit mode
-    isTemplateMode: false, editingTemplateId: null,
-    // Canvas crop: {x, y, w, h} in canvas pixels, or null for full canvas
-    canvasCrop: null,
-};
+import { S, _audioEls, syncAudio, pauseAllAudio } from '../imgvid/state.js';
+import * as History from '../imgvid/history.js';
+import * as PreviewMod from '../imgvid/preview.js';
+import * as ExportMod from '../imgvid/export.js';
+import { uploadImages as _svcUploadImages, uploadClip as _svcUploadClip, uploadAudio as _svcUploadAudio, uploadPip as _svcUploadPip } from '../imgvid/services/upload.js';
+import * as ProjectSvc from '../imgvid/services/project.js';
+import * as TemplateSvc from '../imgvid/services/template.js';
 
-// ── Undo/Redo history ────────────────────────────────────────────────────────
-const _historyStack = [];
-let _historyIdx    = -1;
-let _historyMinIdx =  0; // floor: undo stops here. 0 = any baseline reachable; set to 0 always, overridden per-context
-
-// ── Audio element pool ────────────────────────────────────────────────────────
-const _audioEls = new Map(); // trackId → HTMLAudioElement
+// ── State, history, and audio pool are managed by dedicated modules ────────────
+// S          → imported from imgvid/state.js (shared singleton)
+// _audioEls  → imported from imgvid/state.js
+// History    → imported from imgvid/history.js
 
 // ── Project tabs ──────────────────────────────────────────────────────────────
 const _tabs = [];          // array of tab state snapshots
 let _activeTabIdx = 0;
 let _tabClipboard = null;  // {clips, audioTracks, subtitles, pipLayers}
 
-function _syncAudio(t, force = false) {
-    const allIds = new Set(S.audioTracks.map(x => x.id));
-    // Prune removed tracks
-    for (const [id, el] of _audioEls) {
-        if (!allIds.has(id)) { el.pause(); _audioEls.delete(id); }
-    }
-    for (const track of S.audioTracks) {
-        let el = _audioEls.get(track.id);
-        if (!el) {
-            el = new Audio(track.fileUrl);
-            el.volume = Math.max(0, Math.min(1, track.volume ?? 1));
-            _audioEls.set(track.id, el);
-        } else {
-            el.volume = Math.max(0, Math.min(1, track.volume ?? 1));
-        }
-        const speed = track.speed ?? 1;
-        if (el.playbackRate !== speed) el.playbackRate = speed;
-        const trackT = t - (track.startOffset || 0);
-        if (trackT < 0) { if (!el.paused) el.pause(); continue; }
-        if (track.duration !== undefined && trackT >= track.duration) { if (!el.paused) el.pause(); continue; }
-        const audioFileT = trackT * speed + (track.trimIn || 0);
-        if (force || Math.abs(el.currentTime - audioFileT) > 0.3) {
-            el.currentTime = Math.max(0, audioFileT);
-        }
-        if (S.isPlaying && el.paused) el.play().catch(() => {});
-        if (!S.isPlaying && !el.paused) el.pause();
-    }
-}
-
-function _pauseAllAudio() {
-    for (const el of _audioEls.values()) el.pause();
-}
+// syncAudio / pauseAllAudio are imported from imgvid/state.js
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 export async function init() {
     const $ = id => document.getElementById(id);
+
+    // Local aliases for imported audio helpers (keep call sites unchanged)
+    const _syncAudio     = (...a) => syncAudio(...a);
+    const _pauseAllAudio = ()     => pauseAllAudio();
 
     // Wrappers so existing code that calls totalDur() / clipAtTime(t) / _snap / _getSnapTargets still works
     const totalDur = () => _totalDurFn(S.clips);
@@ -835,34 +784,16 @@ export async function init() {
             if (!S.editingTemplateId) return;
             const result = await _openSaveVprojectDialog(S.projectName);
             if (!result) return;
-            try {
-                const r = await fetch('/api/imgvid/template/save-to-vproject', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tid: S.editingTemplateId, dir: result.dir, filename: result.filename }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка сохранения', 'err'); return; }
-                toast('Шаблон сохранён: ' + d.path, 'ok');
-                log('Сохранено как .vproject: ' + d.path, 'done');
-            } catch (e) { toast(e.message, 'err'); }
+            const d = await TemplateSvc.saveToVproject(S.editingTemplateId, result.dir, result.filename);
+            if (d) { toast('Шаблон сохранён: ' + d.path, 'ok'); log('Сохранено как .vproject: ' + d.path, 'done'); }
         } else {
             // Project mode → save as .project
             await _saveProject({ silent: true });
             if (!S.projectId) { toast('Не удалось сохранить проект', 'err'); return; }
             const result = await _openSaveAmurDialog(S.projectName);
             if (!result) return;
-            try {
-                const r = await fetch('/api/imgvid/project/save-to-path', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pid: S.projectId, dir: result.dir, filename: result.filename }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка сохранения', 'err'); return; }
-                toast('Сохранено: ' + d.path, 'ok');
-                log('Сохранено как .project: ' + d.path, 'done');
-            } catch (e) { toast(e.message, 'err'); }
+            const d = await ProjectSvc.saveToPath(S.projectId, result.dir, result.filename);
+            if (d) { toast('Сохранено: ' + d.path, 'ok'); log('Сохранено как .project: ' + d.path, 'done'); }
         }
     });
     exportBtn.addEventListener('click', _startExport);
@@ -883,37 +814,20 @@ export async function init() {
             const suggestedName = (S.projectName || 'Шаблон').trim();
             const name = await openPrompt({ title: 'Название шаблона', initial: suggestedName, confirmLabel: 'Продолжить' });
             if (name === null) return;
-            try {
-                const r = await fetch(`/api/imgvid/projects/${S.projectId}/save-as-template`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name.trim() || suggestedName }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                tid = d.id;
-                S.isTemplateMode = true;
-                S.editingTemplateId = tid;
-                _updateSaveBtn();
-                await loadTemplatesList();
-                events.dispatchEvent(new CustomEvent('imgvid-template-changed'));
-            } catch (e) { toast(e.message, 'err'); return; }
+            const d = await ProjectSvc.saveAsTemplate(S.projectId, name.trim() || suggestedName);
+            if (!d) return;
+            tid = d.id;
+            S.isTemplateMode = true;
+            S.editingTemplateId = tid;
+            _updateSaveBtn();
+            await loadTemplatesList();
+            events.dispatchEvent(new CustomEvent('imgvid-template-changed'));
         }
 
         const result = await _openSaveVprojectDialog(S.projectName);
         if (!result) return;
-        try {
-            const r = await fetch('/api/imgvid/template/save-to-vproject', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tid, dir: result.dir, filename: result.filename }),
-            });
-            const d = await r.json();
-            if (!r.ok) { toast(d.detail || 'Ошибка сохранения', 'err'); return; }
-            toast('Шаблон сохранён: ' + d.path, 'ok');
-            log('Сохранено как .vproject: ' + d.path, 'done');
-            _switchSidebarTab('templates');
-        } catch (e) { toast(e.message, 'err'); }
+        const d2 = await TemplateSvc.saveToVproject(tid, result.dir, result.filename);
+        if (d2) { toast('Шаблон сохранён: ' + d2.path, 'ok'); log('Сохранено как .vproject: ' + d2.path, 'done'); _switchSidebarTab('templates'); }
     });
     // .project load
     openAmurBtn?.addEventListener('click', async () => {
@@ -922,21 +836,10 @@ export async function init() {
         if (!result) return;
         toast('Открытие .project…', 'info');
         try {
-            let d;
-            if (result.type === 'file') {
-                const fd = new FormData(); fd.append('file', result.file);
-                const r = await fetch('/api/imgvid/project/unpack', { method: 'POST', body: fd });
-                d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            } else {
-                const r = await fetch('/api/imgvid/project/load-from-path', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ file_path: result.path }),
-                });
-                d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            }
+            const d = result.type === 'file'
+                ? await ProjectSvc.unpackProject(result.file)
+                : await ProjectSvc.loadFromPath(result.path);
+            if (!d) return;
             _stopPlayback();
             S.projectId = d.id; S.projectName = d.name;
             S.clips = d.slides || []; S.audioTracks = d.audio || [];
@@ -953,7 +856,7 @@ export async function init() {
             if (cropBtn) cropBtn.classList.toggle('ive-crop-active', !!S.canvasCrop);
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(d.export_settings);
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             _updatePreviewSize();
             renderAll(); _pushHistory(); await loadProjectsList();
@@ -968,21 +871,10 @@ export async function init() {
         if (!result) return;
         toast('Открытие .vproject…', 'info');
         try {
-            let d;
-            if (result.type === 'file') {
-                const fd = new FormData(); fd.append('file', result.file);
-                const r = await fetch('/api/imgvid/template/unpack', { method: 'POST', body: fd });
-                d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            } else {
-                const r = await fetch('/api/imgvid/template/load-from-vproject', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ file_path: result.path }),
-                });
-                d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            }
+            const d = result.type === 'file'
+                ? await TemplateSvc.unpackVproject(result.file)
+                : await TemplateSvc.loadFromVproject(result.path);
+            if (!d) return;
             _stopPlayback();
             S.projectId = d.id; S.projectName = d.name;
             S.isTemplateMode = true; S.editingTemplateId = d.id;
@@ -1000,7 +892,7 @@ export async function init() {
             if (cropBtn) cropBtn.classList.toggle('ive-crop-active', !!S.canvasCrop);
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(d.export_settings);
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             _updatePreviewSize();
             renderAll(); _pushHistory(); await loadTemplatesList();
@@ -1013,8 +905,8 @@ export async function init() {
         const pid = ev.detail?.pid; if (!pid) return;
         if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
         try {
-            const r = await fetch(`/api/imgvid/projects/${pid}`);
-            const d = await r.json();
+            const d = await ProjectSvc.fetchProject(pid);
+            if (!d) { toast('Проект не найден', 'err'); return; }
             _stopPlayback();
             S.projectId = d.id; S.projectName = d.name;
             S.clips = d.slides || []; S.audioTracks = d.audio || [];
@@ -1031,7 +923,7 @@ export async function init() {
             if (cropBtn) cropBtn.classList.toggle('ive-crop-active', !!S.canvasCrop);
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(d.export_settings);
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             _updatePreviewSize();
             renderAll(); _pushHistory(); await loadProjectsList();
@@ -1233,22 +1125,15 @@ export async function init() {
             const clip = S.clips[S.selIdx];
             if (!clip) return;
             toast('Извлечение аудио…', 'info');
-            try {
-                const r = await fetch('/api/imgvid/extract-audio', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ file: clip.file }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                const _exLane = _getNextLane();
-                const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_exLane), trimIn: 0, laneIndex: _exLane, originalDuration: d.duration || undefined };
-                S.audioTracks.push(track);
-                _pushHistory();
-                S.dirty = true;
-                renderMediaList(); renderTimeline();
-                toast('Аудио добавлено в таймлайн', 'ok');
-            } catch (ex) { toast(ex.message, 'err'); }
+            const d = await ProjectSvc.extractAudio(clip.file);
+            if (!d) return;
+            const _exLane = _getNextLane();
+            const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_exLane), trimIn: 0, laneIndex: _exLane, originalDuration: d.duration || undefined };
+            S.audioTracks.push(track);
+            _pushHistory();
+            S.dirty = true;
+            renderMediaList(); renderTimeline();
+            toast('Аудио добавлено в таймлайн', 'ok');
         });
 
         document.body.appendChild(_ctx);
@@ -1566,6 +1451,18 @@ export async function init() {
     });
     $('ive-exp-settings-btn')?.addEventListener('click', () => expModal.open());
 
+    // ── Wire up preview and export modules ────────────────────────────────────
+    PreviewMod.init({
+        previewInner, previewContent, previewMediaWrap,
+        previewContentNext, transOverlayEl, subContainer,
+        zoomDisplay, zoomPct, zoomSign,
+    }, { getResolution: _getResolution });
+
+    ExportMod.init({
+        expModal, exportBtn, exportProg, exportStatus,
+        progFill, progPct, cancelExportBtn,
+    }, { buildTracksMetadata: _buildTracksMetadata });
+
     // ── Draggable modals ──────────────────────────────────────────────────────
     function _makeDraggable(overlay, box, handle) {
         if (!overlay || !box || !handle) return;
@@ -1606,33 +1503,17 @@ export async function init() {
 
     async function _uploadImages(files) {
         const dur = parseFloat(globalDurEl.value) || 4;
-        for (const file of files) {
-            try {
-                const fd = new FormData(); fd.append('file', file);
-                const r = await fetch('/api/imgvid/images', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); continue; }
-                S.clips.push({ id: uid(), type: 'image', file: d.name, fileUrl: d.url, thumbUrl: d.url, original: d.original, duration: dur, transition: { type: 'fade', duration: 0.5 }, startEffect: { type: 'none', duration: 1.0 }, endEffect: { type: 'none', duration: 1.0 }, continuousEffect: { type: 'none', intensity: 30 }, effects: [], subtitles: [], imgScale: 100, imgOffsetX: 0, imgOffsetY: 0, crop: null });
-                _pushHistory();
-                S.dirty = true; log('Изображение добавлено: ' + d.original, 'done');
-            } catch (e) { toast(e.message, 'err'); }
-        }
+        const clips = await _svcUploadImages(files, dur);
+        clips.forEach(c => S.clips.push(c));
+        if (clips.length) { _pushHistory(); S.dirty = true; }
         if (S.selIdx < 0 && S.clips.length) S.selIdx = 0;
         renderAll();
     }
 
     async function _uploadClips(files) {
         for (const file of files) {
-            try {
-                toast('Загрузка видео…', 'info');
-                const fd = new FormData(); fd.append('file', file);
-                const r = await fetch('/api/imgvid/clips', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); continue; }
-                S.clips.push({ id: uid(), type: 'video', file: d.name, fileUrl: d.url, thumbUrl: d.thumb_url || '', original: d.original, duration: d.duration || 5, originalDuration: d.duration || 5, transition: { type: 'fade', duration: 0.5 }, startEffect: { type: 'none', duration: 1.0 }, endEffect: { type: 'none', duration: 1.0 }, continuousEffect: { type: 'none', intensity: 30 }, effects: [], subtitles: [] });
-                _pushHistory();
-                S.dirty = true; log('Видеоклип добавлен: ' + d.original, 'done');
-            } catch (e) { toast(e.message, 'err'); }
+            const clip = await _svcUploadClip(file);
+            if (clip) { S.clips.push(clip); _pushHistory(); S.dirty = true; }
         }
         if (S.selIdx < 0 && S.clips.length) S.selIdx = 0;
         renderAll();
@@ -1655,22 +1536,17 @@ export async function init() {
     }
 
     async function _uploadAudio(file) {
-        try {
-            const fd = new FormData(); fd.append('file', file);
-            const r = await fetch('/api/imgvid/audio', { method: 'POST', body: fd });
-            const d = await r.json();
-            if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            const _newLane = (S._nextAudioLane !== undefined) ? S._nextAudioLane : _getNextLane();
-            delete S._nextAudioLane;
-            if (!S.audioLanes.includes(_newLane)) S.audioLanes.push(_newLane);
-            const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_newLane), trimIn: 0, laneIndex: _newLane };
-            S.audioTracks.push(track);
-            _pushHistory();
-            S.dirty = true; log('Аудио добавлено: ' + d.original, 'done');
-            renderMediaList(); renderTimeline();
-            // Probe original duration asynchronously via Web Audio
-            _probeAudioDuration(d.url).then(dur => { if (dur > 0) { track.originalDuration = dur; track.duration = dur; renderTimeline(); } });
-        } catch (e) { toast(e.message, 'err'); }
+        const data = await _svcUploadAudio(file);
+        if (!data) return;
+        const _newLane = (S._nextAudioLane !== undefined) ? S._nextAudioLane : _getNextLane();
+        delete S._nextAudioLane;
+        if (!S.audioLanes.includes(_newLane)) S.audioLanes.push(_newLane);
+        const track = { ...data, startOffset: _findFreeAudioOffset(_newLane), laneIndex: _newLane };
+        S.audioTracks.push(track);
+        _pushHistory();
+        S.dirty = true;
+        renderMediaList(); renderTimeline();
+        probeAudioDuration(data.fileUrl).then(dur => { if (dur > 0) { track.originalDuration = dur; track.duration = dur; renderTimeline(); } });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1739,117 +1615,15 @@ export async function init() {
         totTime.textContent = fmt(total);
     }
 
-    // ── Preview zoom ──────────────────────────────────────────────────────────
-    // → imgvid/preview.js (applyZoom)
-    function _applyZoom(mode, pct) {
-        S.previewMode = mode;
-        if (mode === 'fit') {
-            S.previewZoom = 1;
-            previewContent.style.transform = '';
-            previewContent.style.transformOrigin = '';
-            zoomDisplay.textContent = 'Fit';
-            zoomPct.style.display = 'none'; zoomSign.style.display = 'none';
-            _updatePreviewSize();
-        } else if (mode === 'original') {
-            S.previewZoom = 1;
-            previewContent.style.transform = '';
-            previewContent.style.transformOrigin = '';
-            zoomDisplay.textContent = '100%';
-            zoomPct.style.display = 'none'; zoomSign.style.display = 'none';
-            _updatePreviewSize();
-        } else if (mode === 'cover') {
-            S.previewZoom = 1;
-            previewContent.style.transform = '';
-            previewContent.style.transformOrigin = '';
-            zoomDisplay.textContent = 'Cover';
-            zoomPct.style.display = 'none'; zoomSign.style.display = 'none';
-            _updatePreviewSize();
-        } else {
-            // internal custom scale (e.g., Ctrl+Scroll wheel)
-            const scale = Math.max(0.1, Math.min(8, pct / 100));
-            S.previewZoom = scale;
-            previewContent.style.transform = `scale(${scale})`;
-            zoomDisplay.textContent = Math.round(scale * 100) + '%';
-            zoomPct.value = Math.round(scale * 100);
-            _updatePreviewSize();
-        }
-    }
+    // ── Preview zoom / size (delegated to imgvid/preview.js) ─────────────────
+    function _applyZoom(mode, pct) { PreviewMod.applyZoom(mode, pct); }
 
     function _getResolution() {
         const { w, h } = expModal.getResolution();
         return `${w}x${h}`;
     }
 
-    // → imgvid/preview.js (updatePreviewSize)
-    function _updatePreviewSize() {
-        const resVal = _getResolution();
-        const parts  = resVal.split('x').map(Number);
-        const resW   = parts[0] || 1920;
-        const resH   = parts[1] || 1080;
-
-        const crop  = S.canvasCrop;
-        const cropSx = (crop && crop.resW) ? resW / crop.resW : 1;
-        const cropSy = (crop && crop.resH) ? resH / crop.resH : 1;
-        const viewW = (crop && crop.w > 0) ? Math.round(crop.w * cropSx) : resW;
-        const viewH = (crop && crop.h > 0) ? Math.round(crop.h * cropSy) : resH;
-
-        let w, h;
-        if (S.previewMode === 'original') {
-            w = viewW; h = viewH;
-        } else {
-            const cW = previewInner.clientWidth  || 640;
-            const cH = previewInner.clientHeight || 360;
-            const sc = S.previewMode === 'cover'
-                ? Math.max(cW / viewW, cH / viewH)
-                : Math.min(cW / viewW, cH / viewH);
-            w = Math.floor(viewW * sc); h = Math.floor(viewH * sc);
-        }
-        previewContent.style.width  = w + 'px';
-        previewContent.style.height = h + 'px';
-        S.previewH = h; S.previewW = w;
-
-        // Canvas crop: offset the full-canvas media wrap within the crop viewport
-        if (crop && crop.w > 0 && crop.h > 0) {
-            const scale = w / viewW;
-            previewMediaWrap.style.left   = (-Math.round(crop.x * scale)) + 'px';
-            previewMediaWrap.style.top    = (-Math.round(crop.y * scale)) + 'px';
-            previewMediaWrap.style.right  = 'auto';
-            previewMediaWrap.style.bottom = 'auto';
-            previewMediaWrap.style.width  = Math.round(resW * scale) + 'px';
-            previewMediaWrap.style.height = Math.round(resH * scale) + 'px';
-        } else {
-            previewMediaWrap.style.left   = '';
-            previewMediaWrap.style.top    = '';
-            previewMediaWrap.style.right  = '';
-            previewMediaWrap.style.bottom = '';
-            previewMediaWrap.style.width  = '';
-            previewMediaWrap.style.height = '';
-        }
-
-        if (previewContentNext) {
-            const iW   = previewInner.clientWidth  || 640;
-            const iH   = previewInner.clientHeight || 360;
-            const left = Math.floor((iW - w) / 2);
-            const top  = Math.floor((iH - h) / 2);
-            previewContentNext.style.width  = w + 'px';
-            previewContentNext.style.height = h + 'px';
-            previewContentNext.style.left   = left + 'px';
-            previewContentNext.style.top    = top  + 'px';
-            if (transOverlayEl) {
-                transOverlayEl.style.width  = w + 'px';
-                transOverlayEl.style.height = h + 'px';
-                transOverlayEl.style.left   = left + 'px';
-                transOverlayEl.style.top    = top  + 'px';
-            }
-            // Sync subtitle container with same position as previewContentNext
-            if (subContainer) {
-                subContainer.style.width  = w + 'px';
-                subContainer.style.height = h + 'px';
-                subContainer.style.left   = left + 'px';
-                subContainer.style.top    = top  + 'px';
-            }
-        }
-    }
+    function _updatePreviewSize() { PreviewMod.updatePreviewSize(); }
 
     // ── Transition preview ────────────────────────────────────────────────────
     function _applyTransitionCSS(type, p) {
@@ -2001,8 +1775,8 @@ export async function init() {
             isTemplateMode: S.isTemplateMode, editingTemplateId: S.editingTemplateId,
             trackOrder: [...(S.trackOrder || ['video', 'audio', 'subtitle', 'pip'])],
             canvasCrop: S.canvasCrop ? { ...S.canvasCrop } : null,
-            historyStack: JSON.parse(JSON.stringify(_historyStack)),
-            histIdx: _historyIdx,
+            historyStack: JSON.parse(JSON.stringify(History.getStack())),
+            histIdx: History.getIdx(),
             audioLanes: [...S.audioLanes],
             exportSettings: (() => { try { return expModal.getSettings(); } catch { return null; } })(),
         };
@@ -2039,10 +1813,7 @@ export async function init() {
         S.editingTemplateId = snap.editingTemplateId || null;
         S.trackOrder = snap.trackOrder || ['video', 'audio', 'subtitle', 'pip'];
         S.canvasCrop = snap.canvasCrop || null;
-        _historyStack.length = 0;
-        (snap.historyStack || []).forEach(h => _historyStack.push(h));
-        _historyIdx = snap.histIdx ?? -1;
-        _historyMinIdx = 0;
+        History.setStack(snap.historyStack || [], snap.histIdx ?? -1);
         if (snap.exportSettings) {
             expModal.applySettings(snap.exportSettings);
             _updatePreviewSize();
@@ -3969,13 +3740,12 @@ export async function init() {
             $('pv-replace-btn').addEventListener('click', () => $('pv-replace-file').click());
             $('pv-replace-file').addEventListener('change', async () => {
                 const f = $('pv-replace-file').files[0]; if (!f) return;
-                const fd = new FormData(); fd.append('file', f);
-                try {
-                    const r = await fetch('/api/imgvid/images', { method: 'POST', body: fd });
-                    const d = await r.json();
-                    clip.file = d.name; clip.fileUrl = d.url; clip.thumbUrl = d.url; clip.original = d.original;
-                    S.dirty = true; log('Изображение заменено: ' + d.original, 'done'); renderAll();
-                } catch (err) { toast(err.message, 'err'); }
+                const clips = await _svcUploadImages([f], clip.duration || 4);
+                if (clips.length) {
+                    clip.file = clips[0].file; clip.fileUrl = clips[0].fileUrl;
+                    clip.thumbUrl = clips[0].thumbUrl; clip.original = clips[0].original;
+                    S.dirty = true; log('Изображение заменено: ' + clips[0].original, 'done'); renderAll();
+                }
                 $('pv-replace-file').value = '';
             });
         }
@@ -4062,14 +3832,8 @@ export async function init() {
         if (isVideo) {
             $('pv-extract-audio')?.addEventListener('click', async () => {
                 toast('Извлечение аудио…', 'info');
-                try {
-                    const r = await fetch('/api/imgvid/extract-audio', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ file: clip.file }),
-                    });
-                    const d = await r.json();
-                    if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
+                const d = await ProjectSvc.extractAudio(clip.file);
+                if (d) {
                     const _exLane = _getNextLane();
                     const track = { id: uid(), file: d.name, fileUrl: d.url, original: d.original, volume: 1, fadeIn: 0, fadeOut: 0, startOffset: _findFreeAudioOffset(_exLane), trimIn: 0, laneIndex: _exLane, originalDuration: d.duration || undefined };
                     S.audioTracks.push(track);
@@ -4077,7 +3841,7 @@ export async function init() {
                     S.dirty = true; log('Аудио извлечено: ' + d.original, 'done');
                     renderMediaList(); renderTimeline();
                     toast('Аудио добавлено в таймлайн', 'ok');
-                } catch (e) { toast(e.message, 'err'); }
+                }
             });
         }
     }
@@ -5206,9 +4970,7 @@ export async function init() {
     async function loadProjectsList() {
         const listEl = $('ive-projects-list');
         try {
-            const r     = await fetch('/api/imgvid/projects');
-            const data  = await r.json();
-            const projs = data.projects || [];
+            const projs = await ProjectSvc.fetchProjects();
             if (!projs.length) { listEl.innerHTML = '<div class="ive-empty">Нет проектов</div>'; return; }
             listEl.innerHTML = projs.map(p => `
             <div class="ive-proj-row${p.id === S.projectId ? ' active' : ''}" data-pid="${p.id}">
@@ -5491,12 +5253,8 @@ export async function init() {
     }
 
     async function _applyTemplate(tid) {
-        let tmpl;
-        try {
-            const r = await fetch(`/api/imgvid/templates/${tid}`);
-            if (!r.ok) { toast('Ошибка загрузки шаблона', 'err'); return; }
-            tmpl = await r.json();
-        } catch (err) { toast(err.message, 'err'); return; }
+        const tmpl = await TemplateSvc.fetchTemplate(tid);
+        if (!tmpl) { toast('Ошибка загрузки шаблона', 'err'); return; }
 
         if (S.dirty && !confirm('Несохранённые изменения. Применить шаблон?')) return;
 
@@ -5515,15 +5273,6 @@ export async function init() {
         if (applyBtn) applyBtn.disabled = true;
         toast('Загрузка файлов…', 'info');
 
-        // Helper: upload a File and get back {name, url, thumb_url?, original, duration?}
-        async function _uploadFile(file, isVid) {
-            const fd = new FormData(); fd.append('file', file);
-            const r = await fetch(isVid ? '/api/imgvid/clips' : '/api/imgvid/images', { method: 'POST', body: fd });
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.detail || 'Ошибка загрузки');
-            return d;
-        }
-
         try {
             // ── Slides ──────────────────────────────────────────────────────────
             const newClips = [];
@@ -5541,8 +5290,6 @@ export async function init() {
                         continue;
                     }
 
-                    let fileData;
-                    let isVid;
                     if (sel.type === 'existing') {
                         const existing = S.clips.find(c => c.id === sel.id);
                         if (!existing) { continue; }
@@ -5572,16 +5319,15 @@ export async function init() {
 
                     // type === 'new'
                     if (!sel.file) continue;
-                    isVid = sel.file.type.startsWith('video/') ||
-                        /\.(mp4|mov|avi|mkv|webm|m4v|wmv|flv)$/i.test(sel.file.name);
-                    try { fileData = await _uploadFile(sel.file, isVid); }
-                    catch (e) { toast(e.message, 'err'); continue; }
+                    const fileData = await _svcUploadPip(sel.file);
+                    if (!fileData) continue;
+                    const isVid = fileData.type === 'video';
 
                     const base = { ...tmplSlide, id: uid(), subtitles: [] };
-                    base.type      = isVid ? 'video' : 'image';
-                    base.file      = fileData.name;
-                    base.fileUrl   = fileData.url;
-                    base.thumbUrl  = isVid ? (fileData.thumb_url || '') : fileData.url;
+                    base.type      = fileData.type;
+                    base.file      = fileData.file;
+                    base.fileUrl   = fileData.fileUrl;
+                    base.thumbUrl  = fileData.thumbUrl;
                     base.original  = fileData.original;
                     base.transition  = base.transition  || { type: 'none', duration: 0.5 };
                     base.effects     = base.effects     || [];
@@ -5620,18 +5366,14 @@ export async function init() {
                             duration: existing.duration }];
                     }
                 } else if (aSel.type === 'new' && aSel.file) {
-                    const fd = new FormData(); fd.append('file', aSel.file);
-                    const r = await fetch('/api/imgvid/audio', { method: 'POST', body: fd });
-                    const d = await r.json();
-                    if (r.ok) {
+                    const audioData = await _svcUploadAudio(aSel.file);
+                    if (audioData) {
                         const tmplA = tmpl.audio[0] || {};
-                        // Spread template processing settings but reset file-specific duration
                         const track = { ...tmplA, id: uid(),
-                            file: d.name, fileUrl: d.url, original: d.original,
+                            file: audioData.file, fileUrl: audioData.fileUrl, original: audioData.original,
                             duration: undefined, originalDuration: undefined };
                         newAudio = [track];
-                        // Probe actual duration of new file asynchronously
-                        _probeAudioDuration(d.url).then(dur => {
+                        _probeAudioDuration(audioData.fileUrl).then(dur => {
                             if (dur > 0) {
                                 track.originalDuration = dur;
                                 track.duration = dur;
@@ -5659,15 +5401,13 @@ export async function init() {
                             thumbUrl: existing.thumbUrl, original: existing.original }];
                     }
                 } else if (pSel.type === 'new' && pSel.file) {
-                    const isVid = pSel.file.type.startsWith('video/') ||
-                        /\.(mp4|mov|avi|mkv|webm|m4v|wmv|flv)$/i.test(pSel.file.name);
-                    try {
-                        const d = await _uploadFile(pSel.file, isVid);
+                    const pipData = await _svcUploadPip(pSel.file);
+                    if (pipData) {
                         const tmplP = tmpl.pip[0] || {};
-                        newPip = [{ ...tmplP, id: uid(), type: isVid ? 'video' : 'image',
-                            file: d.name, fileUrl: d.url,
-                            thumbUrl: isVid ? (d.thumb_url || '') : d.url, original: d.original }];
-                    } catch (e) { toast(e.message, 'err'); }
+                        newPip = [{ ...tmplP, id: uid(), type: pipData.type,
+                            file: pipData.file, fileUrl: pipData.fileUrl,
+                            thumbUrl: pipData.thumbUrl, original: pipData.original }];
+                    }
                 } else {
                     // 'skip' — preserve template PIP layers
                     newPip = (tmpl.pip || []).map(p => ({ ...p, id: uid() }));
@@ -5705,7 +5445,7 @@ export async function init() {
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(tmpl.export_settings);
             _updateSaveBtn();
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             renderAll(); _pushHistory();
             log('Шаблон применён: ' + S.projectName, 'done');
@@ -5730,9 +5470,7 @@ export async function init() {
         const listEl = $('ive-templates-list');
         if (!listEl) return;
         try {
-            const r = await fetch('/api/imgvid/templates');
-            const data = await r.json();
-            const tmpls = data.templates || [];
+            const tmpls = await TemplateSvc.fetchTemplates();
             if (!tmpls.length) { listEl.innerHTML = '<div class="ive-empty">Нет шаблонов</div>'; return; }
             listEl.innerHTML = tmpls.map(t => `
             <div class="ive-proj-row${S.isTemplateMode && S.editingTemplateId === t.id ? ' active' : ''}" data-tid="${t.id}">
@@ -5758,24 +5496,17 @@ export async function init() {
             const curName = row.querySelector('.ive-proj-name')?.textContent || '';
             const newName = await openPrompt({ title: 'Переименовать проект', initial: curName, confirmLabel: 'Сохранить' });
             if (newName === null || !newName.trim()) return;
-            try {
-                const r = await fetch(`/api/imgvid/projects/${pid}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: newName.trim() }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                if (S.projectId === pid) { S.projectName = d.name; $('ive-project-name').value = d.name; }
-                toast('Проект переименован: ' + d.name, 'ok');
-                await loadProjectsList();
-            } catch (err) { toast(err.message, 'err'); }
+            const d = await ProjectSvc.renameProject(pid, newName.trim());
+            if (!d) return;
+            if (S.projectId === pid) { S.projectName = d.name; $('ive-project-name').value = d.name; }
+            toast('Проект переименован: ' + d.name, 'ok');
+            await loadProjectsList();
             return;
         }
         if (act === 'del') {
             const ok = await openConfirm({ title: 'Удалить', message: 'Удалить проект?', confirmLabel: 'Удалить' });
             if (!ok) return;
-            await fetch(`/api/imgvid/projects/${pid}`, { method: 'DELETE' });
+            await ProjectSvc.deleteProject(pid);
             log('Проект удалён', 'done');
             if (S.projectId === pid) _resetState();
             renderAll(); await loadProjectsList(); return;
@@ -5784,8 +5515,8 @@ export async function init() {
             _addTab();
         } else if (S.dirty && !confirm('Несохранённые изменения. Открыть другой проект?')) return;
         try {
-            const r = await fetch(`/api/imgvid/projects/${pid}`);
-            const d = await r.json();
+            const d = await ProjectSvc.fetchProject(pid);
+            if (!d) { toast('Проект не найден', 'err'); return; }
             _stopPlayback();
             S.projectId = d.id; S.projectName = d.name;
             S.isTemplateMode = false; S.editingTemplateId = null;
@@ -5824,7 +5555,7 @@ export async function init() {
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(d.export_settings);
             _updateSaveBtn();
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             _updatePreviewSize();
             renderAll(); _pushHistory(); await loadProjectsList();
@@ -5839,7 +5570,7 @@ export async function init() {
         if (act === 'del') {
             const ok = await openConfirm({ title: 'Удалить', message: 'Удалить шаблон?', confirmLabel: 'Удалить' });
             if (!ok) return;
-            await fetch(`/api/imgvid/templates/${tid}`, { method: 'DELETE' });
+            await TemplateSvc.deleteTemplate(tid);
             log('Шаблон удалён', 'done');
             if (S.editingTemplateId === tid) { S.isTemplateMode = false; S.editingTemplateId = null; _updateSaveBtn(); }
             await loadTemplatesList();
@@ -5856,27 +5587,17 @@ export async function init() {
             const tmplName = row.querySelector('.ive-proj-name')?.textContent || '';
             const newName = await openPrompt({ title: 'Переименовать шаблон', initial: tmplName, confirmLabel: 'Сохранить' });
             if (newName === null || !newName.trim()) return;
-            try {
-                const r = await fetch(`/api/imgvid/templates/${tid}/rename`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: newName.trim() }),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                toast('Шаблон переименован: ' + d.name, 'ok');
-                await loadTemplatesList();
-            } catch (err) { toast(err.message, 'err'); }
+            const d = await TemplateSvc.renameTemplate(tid, newName.trim());
+            if (!d) return;
+            toast('Шаблон переименован: ' + d.name, 'ok');
+            await loadTemplatesList();
             return;
         }
         if (act === 'dup') {
-            try {
-                const r = await fetch(`/api/imgvid/templates/${tid}/duplicate`, { method: 'POST' });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                toast('Шаблон продублирован: ' + d.name, 'ok');
-                await loadTemplatesList();
-            } catch (err) { toast(err.message, 'err'); }
+            const d = await TemplateSvc.duplicateTemplate(tid);
+            if (!d) return;
+            toast('Шаблон продублирован: ' + d.name, 'ok');
+            await loadTemplatesList();
             return;
         }
     });
@@ -5889,9 +5610,8 @@ export async function init() {
     async function _editTemplate(tid) {
         if (S.dirty && !confirm('Несохранённые изменения. Открыть шаблон для редактирования?')) return;
         try {
-            const r = await fetch(`/api/imgvid/templates/${tid}`);
-            if (!r.ok) { toast('Шаблон не найден', 'err'); return; }
-            const d = await r.json();
+            const d = await TemplateSvc.fetchTemplate(tid);
+            if (!d) { toast('Шаблон не найден', 'err'); return; }
             _stopPlayback();
             S.projectId = null;
             S.isTemplateMode = true;
@@ -5913,7 +5633,7 @@ export async function init() {
             if ($('ive-project-name')) $('ive-project-name').value = S.projectName;
             _applyExportSettings(d.export_settings);
             _updateSaveBtn();
-            _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+            History.clear();
             clearTimeout(_propsHistTimer); _propsHistTimer = null;
             _updatePreviewSize();
             renderAll(); _pushHistory();
@@ -5935,158 +5655,24 @@ export async function init() {
     async function _saveProject({ silent = false } = {}) {
         if (S.isTemplateMode && S.editingTemplateId) {
             const body = { name: S.projectName, slides: S.clips, audio: S.audioTracks, subtitles: S.subtitles, pip: S.pipLayers.filter(p => !p._empty), trackOrder: S.trackOrder, tracks: _buildTracksMetadata(), export_settings: _getExportSettings(), canvasCrop: S.canvasCrop || null };
-            try {
-                const r = await fetch(`/api/imgvid/templates/${S.editingTemplateId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                const d = await r.json();
-                if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-                S.dirty = false;
-                if (!silent) { toast('Шаблон сохранён', 'ok'); log('Шаблон сохранён: ' + S.projectName, 'done'); }
-                await loadTemplatesList();
-                events.dispatchEvent(new CustomEvent('imgvid-template-changed'));
-            } catch (err) { toast(err.message, 'err'); }
+            const d = await TemplateSvc.saveTemplate(S.editingTemplateId, body);
+            if (!d) return;
+            S.dirty = false;
+            if (!silent) { toast('Шаблон сохранён', 'ok'); log('Шаблон сохранён: ' + S.projectName, 'done'); }
+            await loadTemplatesList();
+            events.dispatchEvent(new CustomEvent('imgvid-template-changed'));
             return;
         }
         const body = { id: S.projectId, name: S.projectName, slides: S.clips, audio: S.audioTracks, subtitles: S.subtitles, pip: S.pipLayers.filter(p => !p._empty), trackOrder: S.trackOrder, tracks: _buildTracksMetadata(), export_settings: _getExportSettings(), canvasCrop: S.canvasCrop || null };
-        try {
-            const r = await fetch(S.projectId ? `/api/imgvid/projects/${S.projectId}` : '/api/imgvid/projects', {
-                method: S.projectId ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const d = await r.json();
-            if (!r.ok) { toast(d.detail || 'Ошибка', 'err'); return; }
-            S.projectId = d.id; S.dirty = false;
-            if (!silent) { toast('Проект сохранён', 'ok'); log('Проект сохранён: ' + S.projectName, 'done'); }
-            await loadProjectsList();
-        } catch (err) { toast(err.message, 'err'); }
+        const d = await ProjectSvc.saveProject(body);
+        if (!d) return;
+        S.projectId = d.id; S.dirty = false;
+        if (!silent) { toast('Проект сохранён', 'ok'); log('Проект сохранён: ' + S.projectName, 'done'); }
+        await loadProjectsList();
     }
 
-    // ── Export ────────────────────────────────────────────────────────────────
-    // → imgvid/export.js (startExport)
-    async function _startExport() {
-        if (!S.clips.length) { toast('Нет клипов для экспорта', 'warn'); return; }
-
-        const settings    = expModal.getSettings();
-        const fmtVal      = settings.format;
-        const isAudioOnly = fmtVal.startsWith('audio:');
-        const audioFmt    = isAudioOnly ? fmtVal.slice(6) : '';
-
-        exportBtn.disabled = true;
-        exportProg.hidden  = false;
-        if (cancelExportBtn) cancelExportBtn.style.display = '';
-        exportStatus.textContent = 'Подготовка…';
-        exportStatus.className   = 'status busy';
-        progFill.style.width = '2%';
-        progPct.textContent  = '0%';
-
-        const projectPayload = JSON.stringify({ slides: S.clips, audio: S.audioTracks, subtitles: S.subtitles, pip: S.pipLayers.filter(p => !p._empty), trackOrder: S.trackOrder, tracks: _buildTracksMetadata(), canvasCrop: S.canvasCrop || null });
-
-        if (isAudioOnly) {
-            if (!S.audioTracks.length) { exportBtn.disabled = false; toast('Нет аудиодорожек для экспорта', 'warn'); return; }
-            const fd = new FormData();
-            fd.append('project_json', projectPayload);
-            fd.append('audio_format', audioFmt);
-            try {
-                await synthesizeStream('/api/imgvid/export-audio', { method: 'POST', body: fd }, {
-                    progress(val, desc) {
-                        if (val !== null && isFinite(val)) {
-                            const pct = Math.round(val * 100);
-                            progFill.style.width = pct + '%'; progPct.textContent = pct + '%';
-                        }
-                        exportStatus.textContent = typeof desc === 'string' && desc.length < 80 ? (desc || 'Обработка…') : 'Обработка…';
-                    },
-                    done(payload) {
-                        exportBtn.disabled = false;
-                        if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                        progFill.style.width = '100%'; progPct.textContent = '100%';
-                        exportStatus.textContent = '✓ Готово'; exportStatus.className = 'status ok';
-                        toast('Аудио экспортировано!', 'ok'); log('Аудио экспортировано: ' + payload.filename, 'done');
-                        const url = payload.audio_url || payload.video_url;
-                        const a = Object.assign(document.createElement('a'), { href: url, download: payload.filename });
-                        document.body.appendChild(a); a.click(); a.remove();
-                        setTimeout(() => { exportProg.hidden = true; }, 5000);
-                    },
-                    error(msg) {
-                        exportBtn.disabled = false;
-                        if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                        exportStatus.textContent = msg; exportStatus.className = 'status err';
-                        toast(msg, 'err'); log(msg, 'err');
-                    },
-                    cancelled(msg) {
-                        exportBtn.disabled = false;
-                        if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                        exportStatus.textContent = 'Отменено'; exportStatus.className = 'status';
-                        progFill.style.width = '0%'; progPct.textContent = '0%';
-                        toast('Экспорт отменён', 'info'); log('Export cancelled by user', 'warn');
-                        setTimeout(() => { exportProg.hidden = true; }, 3000);
-                    },
-                });
-            } catch (err) { exportBtn.disabled = false; toast(err.message, 'err'); }
-            return;
-        }
-
-        const fd = new FormData();
-        fd.append('project_json',   projectPayload);
-        fd.append('output_format',  fmtVal);
-        fd.append('codec',          settings.codec);
-        fd.append('resolution',     settings.resolution);
-        fd.append('fps',            settings.fps);
-        fd.append('quality',        settings.quality);
-        fd.append('audio_codec',    settings.audioCodec);
-        fd.append('audio_bitrate',  settings.audioBitrate);
-        fd.append('audio_sr',       settings.audioSR);
-        fd.append('audio_ch',       settings.audioCh);
-        if (S.canvasCrop) {
-            const c = S.canvasCrop;
-            const { w: expW, h: expH } = expModal.getResolution();
-            const sx = c.resW ? expW / c.resW : 1;
-            const sy = c.resH ? expH / c.resH : 1;
-            const cx = Math.round(c.x * sx);
-            const cy = Math.round(c.y * sy);
-            const cw = Math.round(c.w * sx);
-            const ch = Math.round(c.h * sy);
-            fd.append('canvas_crop', `${cx},${cy},${cw},${ch}`);
-        }
-        try {
-            await synthesizeStream('/api/imgvid/export', { method: 'POST', body: fd }, {
-                progress(val, desc) {
-                    if (val !== null && isFinite(val)) {
-                        const pct = Math.round(val * 100);
-                        progFill.style.width = pct + '%'; progPct.textContent = pct + '%';
-                    }
-                    exportStatus.textContent = typeof desc === 'string' && desc.length < 80 ? (desc || 'Обработка…') : 'Обработка…';
-                },
-                done(payload) {
-                    exportBtn.disabled   = false;
-                    if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                    progFill.style.width = '100%'; progPct.textContent = '100%';
-                    exportStatus.textContent = '✓ Готово'; exportStatus.className = 'status ok';
-                    toast('Экспорт завершён!', 'ok'); log('Видео экспортировано: ' + payload.filename, 'done');
-                    const a = Object.assign(document.createElement('a'), { href: payload.video_url, download: payload.filename });
-                    document.body.appendChild(a); a.click(); a.remove();
-                    setTimeout(() => { exportProg.hidden = true; }, 5000);
-                },
-                error(msg) {
-                    exportBtn.disabled = false;
-                    if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                    exportStatus.textContent = msg; exportStatus.className = 'status err';
-                    toast(msg, 'err'); log(msg, 'err');
-                },
-                cancelled(msg) {
-                    exportBtn.disabled = false;
-                    if (cancelExportBtn) cancelExportBtn.style.display = 'none';
-                    exportStatus.textContent = 'Отменено'; exportStatus.className = 'status';
-                    progFill.style.width = '0%'; progPct.textContent = '0%';
-                    toast('Экспорт отменён', 'info'); log('Export cancelled by user', 'warn');
-                    setTimeout(() => { exportProg.hidden = true; }, 3000);
-                },
-            });
-        } catch (err) { exportBtn.disabled = false; toast(err.message, 'err'); }
-    }
+    // ── Export (delegated to imgvid/export.js) ────────────────────────────────
+    async function _startExport() { await ExportMod.startExport(); }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     function _selectClip(idx, opts = {}) {
@@ -6122,71 +5708,27 @@ export async function init() {
         renderMediaList(); _renderVideoTrack(totalDur()); renderProps();
     }
 
-    // ── Undo/Redo ─────────────────────────────────────────────────────────────
+    // ── Undo/Redo (delegated to imgvid/history.js) ────────────────────────────
 
-    function _pushHistory() {
-        // Dedup: skip if state is identical to current top
-        if (_historyIdx >= 0 && _historyStack[_historyIdx]) {
-            const prev = _historyStack[_historyIdx];
-            if (
-                prev.clips.length       === S.clips.length       &&
-                prev.audioTracks.length === S.audioTracks.length &&
-                prev.subtitles.length   === S.subtitles.length   &&
-                prev.pipLayers.length   === S.pipLayers.length   &&
-                JSON.stringify(prev) === JSON.stringify({
-                    clips: S.clips, audioTracks: S.audioTracks,
-                    subtitles: S.subtitles, pipLayers: S.pipLayers,
-                    trackOrder: S.trackOrder,
-                })
-            ) return;
-        }
-        _historyStack.length = _historyIdx + 1;
-        _historyStack.push({
-            clips:       JSON.parse(JSON.stringify(S.clips)),
-            audioTracks: JSON.parse(JSON.stringify(S.audioTracks)),
-            subtitles:   JSON.parse(JSON.stringify(S.subtitles)),
-            pipLayers:   JSON.parse(JSON.stringify(S.pipLayers)),
-            trackOrder:  [...S.trackOrder],
-        });
-        if (_historyStack.length > 50) {
-            _historyStack.shift();
-            _historyIdx = 49;
-            _historyMinIdx = Math.max(0, _historyMinIdx - 1);
-        } else {
-            _historyIdx = _historyStack.length - 1;
-        }
-    }
+    function _pushHistory() { History.push(); }
 
-    function _restoreSnapshot(snap) {
-        S.clips       = JSON.parse(JSON.stringify(snap.clips));
-        S.audioTracks = JSON.parse(JSON.stringify(snap.audioTracks));
-        S.subtitles   = JSON.parse(JSON.stringify(snap.subtitles));
-        S.pipLayers   = JSON.parse(JSON.stringify(snap.pipLayers));
-        if (snap.trackOrder) S.trackOrder = [...snap.trackOrder];
-        // Remove DOM wrappers for PIPs that no longer exist
+    function _restoreSnapCallback() {
         const validIds = new Set(S.pipLayers.map(p => p.id));
         for (const [id, el] of [..._pipEls]) {
             if (!validIds.has(id)) { el.wrapper?.remove(); _pipEls.delete(id); }
         }
         _clearAllSelections();
-        S.dirty = true;
         renderAll();
     }
 
     function _undo() {
-        if (_propsHistTimer) { clearTimeout(_propsHistTimer); _propsHistTimer = null; _pushHistory(); }
-        if (_historyIdx <= _historyMinIdx) { toast('Нечего отменять', 'info'); return; }
-        _historyIdx--;
-        _restoreSnapshot(_historyStack[_historyIdx]);
-        toast('Отменено', 'ok');
+        if (_propsHistTimer) { clearTimeout(_propsHistTimer); _propsHistTimer = null; History.push(); }
+        History.undo(_restoreSnapCallback);
     }
 
     function _redo() {
         clearTimeout(_propsHistTimer); _propsHistTimer = null;
-        if (_historyIdx >= _historyStack.length - 1) { toast('Нечего повторять', 'info'); return; }
-        _historyIdx++;
-        _restoreSnapshot(_historyStack[_historyIdx]);
-        toast('Повторено', 'ok');
+        History.redo(_restoreSnapCallback);
     }
 
     function _deleteSelectedClip() {
@@ -6413,7 +5955,7 @@ export async function init() {
         _pipEls.clear();
         _cancelCropMode();
         if (cropBtn) cropBtn.classList.remove('ive-crop-active');
-        _historyStack.length = 0; _historyIdx = -1; _historyMinIdx = 0;
+        History.clear();
         clearTimeout(_propsHistTimer); _propsHistTimer = null;
         _updateSaveBtn();
     }
