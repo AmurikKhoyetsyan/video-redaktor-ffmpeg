@@ -15,6 +15,12 @@ export const S = {
     previewZoom: 1.0,     // actual CSS scale factor
     // PIP layers
     pipLayers: [],
+    // Audio lane indices
+    audioLanes: [],
+    // Track display order
+    trackOrder: ['video', 'audio', 'subtitle', 'pip'],
+    // Canvas crop: {x, y, w, h, resW, resH} in canvas pixels, or null
+    canvasCrop: null,
     // Preview dimensions (set by updatePreviewSize, used for subtitle scaling)
     previewH: 0, previewW: 0,
     // Template edit mode

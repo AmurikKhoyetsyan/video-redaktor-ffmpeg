@@ -187,7 +187,7 @@ Base prefix: `/api/imgvid`
 | `fps` | `24` `25` `30` `60` | Frames per second |
 | `quality` | `vlow` `low` `medium` `high` `vhigh` `max` `lossless` | Quality preset (maps to CRF) |
 | `audio_codec` | `aac` `mp3` `opus` `vorbis` `pcm` | Audio encoder |
-| `audio_bitrate` | `128k` `192k` `320k` | Audio bitrate |
+| `audio_bitrate` | `96k` `128k` `192k` `256k` `320k` | Audio bitrate |
 | `canvas_crop` | `x,y,w,h` | Optional canvas crop (pixels) |
 
 **SSE event stream format:**
@@ -248,7 +248,9 @@ data: {"status": "Export cancelled by user"}
 
 **Supported effect types:** `brightness`, `contrast`, `saturation`, `exposure`, `gamma`, `temperature`, `blur`, `sharpen`, `grayscale`, `sepia`, `vignette`, `filmgrain`, `noise`, `invert`, `vintage`, `noir`
 
-**Supported start/end effect types:** `none`, `fade-in` / `fade-out`, `zoom-in`, `zoom-out`, `slide-left`, `slide-right`, `slide-up`, `slide-down`, `blur-in` / `blur-out`, `rotate-in` / `rotate-out`, `flip-h-in` / `flip-h-out`, `reveal-center` / `hide-center`, `bounce-in` / `bounce-out`, `pop` / `pop-out`, `elastic-in` / `elastic-out`, `flip-v-in` / `flip-v-out`
+**Supported start effect types:** `none`, `fade-in`, `zoom-in`, `zoom-out`, `slide-left`, `slide-right`, `slide-up`, `slide-down`, `blur-in`, `rotate-in`, `flip-h-in`, `flip-v-in`, `reveal-center`, `bounce-in`, `pop`, `elastic-in`
+
+**Supported end effect types:** `none`, `fade-out`, `zoom-in`, `zoom-out`, `slide-left`, `slide-right`, `slide-up`, `slide-down`, `blur-out`, `rotate-out`, `flip-h-out`, `flip-v-out`, `hide-center`, `bounce-out`, `pop-out`, `elastic-out`
 
 **Supported continuous effect types:** `none`, `ken-burns-in`, `ken-burns-out`, `ken-burns-lr`, `ken-burns-rl`, `pulse`, `shake`, `float`, `zoom-breathe`, `rotate-slow`, `wiggle`, `drift`, `heartbeat`, `swing`, `spin-fast`
 

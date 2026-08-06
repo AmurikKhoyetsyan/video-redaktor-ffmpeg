@@ -2,10 +2,10 @@
 
 ## Overview
 
-`videoRedaktor` is a single-page FastAPI application. The backend serves a REST API under `/api/imgvid/` and the frontend is plain ES modules served as static files.
+`VideoRedaktor` is a single-page FastAPI application. The backend serves a REST API under `/api/imgvid/` and the frontend is plain ES modules served as static files.
 
 ```
-videoRedaktor/
+VideoRedaktor/
   app.py                   — FastAPI entry point, port 7861
   requirements.txt
   routers/
@@ -49,21 +49,26 @@ videoRedaktor/
       tabs.js              — Stub (single-tab app)
       toast.js             — Transient notifications (info/ok/warn/err)
       tabs/
-        image-video.js     — Editor tab: full image/video editor UI init and coordination
+        image-video.js     — Editor coordinator: initialises DOM, wires events, delegates to imgvid/ modules
       imgvid/
-        constants.js       — TRANSITIONS (22), EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS
-        state.js           — Shared state object S, undo stack, audio element pool, syncAudio()
+        state.js           — Shared state singleton S; _audioEls pool; syncAudio(), pauseAllAudio()
+        history.js         — Undo/redo stack: push(), undo(), redo(), clear(), setStack(), getStack()
+        preview.js         — Preview zoom & size: init(), applyZoom(), updatePreviewSize()
+        export.js          — Full export logic: init(), startExport(), SSE progress handlers
+        constants.js       — TRANSITIONS (23), EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS, CONTINUOUS_EFFECTS
         utils.js           — uid, eh, fmt, fmtShort, totalDur, clipAtTime, buildCSSFilter, snap
         waveform.js        — drawWaveform() with cached peaks, probeAudioDuration()
         props.js           — Property panels: slide / audio / subtitle / PIP
         timeline.js        — Timeline render, drag-drop, resize, snap, context menus
-        playback.js        — togglePlay, seek, updateTransportUI, applyZoom, updatePreviewSize
+        playback.js        — togglePlay, seek, updateTransportUI
         pip.js             — Picture-in-Picture overlay management and controls
         preview-render.js  — Canvas renderer: images, video frames, crop/scale/effects/subtitle overlays
         media-list.js      — Media browser: list clips and audio tracks, handle delete
-        exp-modal.js       — Export dialog UI: format / resolution / fps / quality / codec / SSE progress
-        export.js          — Thin stubs wrapping exp-modal
-        preview.js         — Preview zoom helper stubs
+        exp-modal.js       — Export dialog UI: format / resolution / fps / quality / codec
+        services/
+          upload.js        — File upload API: uploadImages(), uploadClip(), uploadAudio(), uploadPip()
+          project.js       — Project API: fetchProjects/fetchProject/saveProject/renameProject/deleteProject/saveAsTemplate/saveToPath/unpackProject/loadFromPath/browsePath/extractAudio
+          template.js      — Template API: fetchTemplates/fetchTemplate/saveTemplate/renameTemplate/deleteTemplate/duplicateTemplate/saveToVproject/unpackVproject/loadFromVproject
 ```
 
 ---
@@ -130,6 +135,9 @@ router.include_router(export.router)
 - `_make_project_buf(project)` — pack project JSON + media files into a ZIP buffer
 - `_extract_project_zip(zf)` — unpack .project archive and restore media files
 - `_finalize_project(project)` — assign UUID, write project JSON to disk
+- `_finalize_template(project)` — same as `_finalize_project` but sets `is_template=True`
+- `_collect_media_filenames(project)` — return set of all media filenames referenced by a project
+- `delete_orphaned_media(deleted_project)` — remove media files no longer referenced after a project/template is deleted
 
 ---
 
@@ -163,6 +171,7 @@ router.include_router(export.router)
     projects/    — project JSON files ({id}.json)
     templates/   — template JSON files ({id}.json)
   saved_projects/  — .project archives saved to disk
+  saved_templates/ — .vproject archives saved to disk
   logs/            — server log files (YYYY-MM-DD.log)
 ```
 
@@ -197,30 +206,145 @@ The frontend sends client-side log messages to `POST /api/log` which calls `app_
 
 ---
 
-## Frontend State
+## Frontend Architecture
+
+The frontend uses a **module coordinator + service layer** pattern. All backend API calls are isolated in `imgvid/services/`. All editor logic is split into focused modules. The coordinator `tabs/image-video.js` wires DOM events and delegates to the modules.
+
+```
+tabs/image-video.js          ← coordinator (init, event wiring)
+  ├── imgvid/state.js        ← shared state singleton S
+  ├── imgvid/history.js      ← undo/redo stack
+  ├── imgvid/preview.js      ← preview zoom & size
+  ├── imgvid/export.js       ← export logic & SSE progress
+  └── imgvid/services/
+        ├── upload.js        ← POST /api/imgvid/{images,clips,audio}
+        ├── project.js       ← /api/imgvid/projects/* CRUD + archives
+        └── template.js      ← /api/imgvid/templates/* CRUD + archives
+```
+
+### Shared State (`state.js`)
 
 `static/js/imgvid/state.js` exports a single shared state object `S`:
 
 ```js
 S = {
-  slides: [],        // video/image clips
-  audio: [],         // audio tracks
-  subtitles: [],     // subtitle objects
-  pip: [],           // PIP layers
-  trackOrder: [...], // visual layer order
-  exportSettings: {}, 
-  canvasCrop: null,
-  currentIndex: -1,  // selected slide index
-  selectedAudioId: null,
-  selectedSubId: null,
-  selectedPipId: null,
-  playing: false,
+  projectId: null,
+  projectName: 'Новый проект',
+  clips: [],           // video/image clips on the timeline
+  audioTracks: [],     // audio tracks
+  subtitles: [],       // subtitle objects
+  pipLayers: [],       // PIP layers
+
+  // Single selection (index into respective array, -1 = none)
+  selIdx: -1,
+  selAudioIdx: -1,
+  selSubIdx: -1,
+  selPipIdx: -1,
+
+  // Multi-selection (Set of indices, populated on Ctrl+click)
+  selIdxs: new Set(),
+  selSubIdxs: new Set(),
+  selPipIdxs: new Set(),
+  selAudioIdxs: new Set(),
+
+  activeTab: 'slide',  // current property-panel tab
+  dirty: false,        // unsaved changes flag
+
+  // Playback
   currentTime: 0,
-  zoom: 1,           // timeline zoom
-  previewZoom: 'fit',
-  undoStack: [],
-  redoStack: [],
+  isPlaying: false,
+
+  // Timeline
+  pxPerSec: 80,        // zoom: pixels per second
+
+  // Preview
+  previewMode: 'fit',  // 'fit' | 'original' | 'cover' | 'custom'
+  previewZoom: 1.0,    // CSS scale factor
+  previewW: 0,
+  previewH: 0,
+
+  // Canvas crop (null = no crop)
+  canvasCrop: null,
+
+  // Template edit mode
+  isTemplateMode: false,
+  editingTemplateId: null,
 }
 ```
 
-Undo/redo is implemented via snapshot cloning of the `S` object on every mutating action.
+Also exported from `state.js`: `_audioEls` (Map of active HTMLAudioElement instances), `syncAudio(t, force)`, `pauseAllAudio()`.
+
+### Undo/Redo (`history.js`)
+
+`static/js/imgvid/history.js` manages the undo/redo stack independently of the state module.
+
+| Export | Description |
+|--------|-------------|
+| `push()` | Push a deep-clone snapshot of `S` (clips, audioTracks, subtitles, pipLayers, trackOrder) |
+| `undo(onRestore)` | Restore previous snapshot, call `onRestore()` for DOM cleanup |
+| `redo(onRestore)` | Re-apply next snapshot, call `onRestore()` for DOM cleanup |
+| `schedulePush(fn, ms)` | Debounced push (default 700 ms) — used for slider changes |
+| `clear()` | Reset the stack (on project load) |
+| `setStack(arr, idx)` | Restore a saved stack (tab switching) |
+| `getStack() / getIdx()` | Snapshot the stack for tab state serialization |
+
+### Preview (`preview.js`)
+
+`static/js/imgvid/preview.js` handles preview sizing. Initialised with `init(dom, { getResolution })`.
+
+| Export | Description |
+|--------|-------------|
+| `applyZoom(mode, pct)` | Set zoom mode: `'fit'`, `'original'`, `'cover'`, or a numeric percentage |
+| `updatePreviewSize()` | Recalculate and apply preview dimensions, respecting canvas crop |
+
+### Export (`export.js`)
+
+`static/js/imgvid/export.js` handles the full export flow. Initialised with `init(dom, { buildTracksMetadata })`.
+
+| Export | Description |
+|--------|-------------|
+| `startExport()` | Collects export settings, POSTs to `/api/imgvid/export` or `/api/imgvid/export-audio`, streams SSE progress |
+| `getSettings()` / `applySettings(s)` | Read/write export modal settings |
+
+### Service Layer (`services/`)
+
+Each service module handles one API domain. All errors are toasted internally; functions return `null` on failure.
+
+**`services/upload.js`**
+
+| Function | Endpoint |
+|----------|---------|
+| `uploadImages(files, defaultDur)` | `POST /api/imgvid/images` — returns array of clip objects |
+| `uploadClip(file)` | `POST /api/imgvid/clips` — returns a clip object |
+| `uploadAudio(file)` | `POST /api/imgvid/audio` — returns a track object |
+| `uploadPip(file)` | `POST /api/imgvid/images` or `/clips` — returns a PIP data object |
+
+**`services/project.js`**
+
+| Function | Endpoint |
+|----------|---------|
+| `fetchProjects()` | `GET /api/imgvid/projects` |
+| `fetchProject(id)` | `GET /api/imgvid/projects/{id}` |
+| `saveProject(body)` | `POST` or `PUT /api/imgvid/projects/{id}` |
+| `renameProject(id, name)` | `PATCH /api/imgvid/projects/{id}` |
+| `deleteProject(id)` | `DELETE /api/imgvid/projects/{id}` |
+| `saveAsTemplate(pid, name)` | `POST /api/imgvid/projects/{pid}/save-as-template` |
+| `saveToPath(pid, dir, filename)` | `POST /api/imgvid/project/save-to-path` |
+| `unpackProject(file)` | `POST /api/imgvid/project/unpack` |
+| `loadFromPath(filePath)` | `POST /api/imgvid/project/load-from-path` |
+| `browsePath(url, dir)` | `GET <url>?path=<dir>` |
+| `extractAudio(file)` | `POST /api/imgvid/extract-audio` |
+
+**`services/template.js`**
+
+| Function | Endpoint |
+|----------|---------|
+| `fetchTemplates()` | `GET /api/imgvid/templates` |
+| `fetchTemplate(id)` | `GET /api/imgvid/templates/{id}` |
+| `saveTemplate(id, body)` | `PUT /api/imgvid/templates/{id}` |
+| `renameTemplate(id, name)` | `PATCH /api/imgvid/templates/{id}/rename` |
+| `deleteTemplate(id)` | `DELETE /api/imgvid/templates/{id}` |
+| `duplicateTemplate(id)` | `POST /api/imgvid/templates/{id}/duplicate` |
+| `saveToVproject(tid, dir, filename)` | `POST /api/imgvid/template/save-to-vproject` |
+| `unpackVproject(file)` | `POST /api/imgvid/template/unpack` |
+| `loadFromVproject(filePath)` | `POST /api/imgvid/template/load-from-vproject` |

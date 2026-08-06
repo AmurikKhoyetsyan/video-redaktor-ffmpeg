@@ -52,15 +52,15 @@ The server starts on **http://127.0.0.1:7861** and opens a browser tab automatic
 | Category | Details |
 |----------|---------|
 | **Timeline** | Multi-track: video/images, audio tracks, subtitles, PIP layers |
-| **Transitions** | 22 types — fade, dissolve, slide, wipe, zoom, pixelize, radial, hblur, fadegrays, and more |
-| **Visual effects** | 16 effects — brightness, contrast, saturation, blur, sharpen, grayscale, sepia, vignette, invert, film grain, and more |
-| **Start/End effects** | Per-clip entry/exit animations: fade, zoom, slide, rotate, bounce, pop, elastic, flip, reveal |
-| **Continuous effects** | Ken Burns (4 variants), pulse, shake, float, zoom-breathe, rotate-slow, wiggle, drift, heartbeat, swing, spin-fast |
-| **Subtitles** | Full styling, positioning, animations (fade, slide, typewriter, zoom-in), karaoke word-timing |
-| **Audio** | Multiple tracks, volume, speed, fade, trim, start offset, 14 sound effects |
+| **Transitions** | 23 types — fade, dissolve, slide, wipe, zoom, pixelize, radial, hblur, fadegrays, circle, and more |
+| **Visual effects** | 16 effects — brightness, contrast, saturation, exposure, gamma, temperature, blur, sharpen, grayscale, sepia, vignette, invert, film grain, noise, vintage, noir |
+| **Start/End effects** | 16 per-clip entry/exit animations: fade, zoom, slide, rotate, bounce, pop, elastic, flip (H+V), blur, reveal |
+| **Continuous effects** | 15 effects — Ken Burns (4 variants), pulse, heartbeat, shake, wiggle, float, drift, zoom-breathe, rotate-slow, swing, spin-fast |
+| **Subtitles** | Full styling, positioning, 7 animations (fade, slide, typewriter, zoom-in), karaoke word-timing |
+| **Audio** | Multiple tracks, volume, speed, fade, trim, start offset, 14 sound effects, per-track audio channels and sample rate |
 | **PIP** | Picture-in-picture layers with opacity, position, effects, time window |
 | **Canvas crop** | Crop output canvas to any region before export |
-| **Export formats** | MP4, MOV, MKV, WebM, AVI, GIF, OGV, FLV, WMV, MPEG; audio-only: MP3, WAV, FLAC, AAC, OGG |
+| **Export formats** | MP4, MOV, MKV, M4V, WebM, AVI, GIF, OGV, FLV, WMV, MPEG; audio-only: MP3, WAV, FLAC, AAC, OGG, M4A, Opus |
 | **Codecs** | H.264, H.265 (HEVC), VP9, VP8, AV1, ProRes, MPEG-4, Theora, WMV2, MPEG-2 |
 | **Projects** | Save/load JSON, export/import `.project` archives (ZIP with embedded media) |
 | **Templates** | Save as reusable template, apply with drag-and-drop slot filling, `.vproject` archive format |
@@ -113,8 +113,41 @@ VideoRedaktor/
 │   ├── index.html
 │   ├── css/
 │   └── js/
-│       ├── imgvid/             — Editor core modules (state, timeline, preview…)
-│       └── …
+│       ├── app.js              — Entry point: initialises logger and editor
+│       ├── api.js              — fetch helpers (getJSON, postJSON, uploadForm…)
+│       ├── audio-manager.js    — Singleton: one AudioPlayer at a time
+│       ├── audio-player.js     — Custom audio wrapper with waveform scrubbing
+│       ├── wave-renderer.js    — Canvas waveform renderer
+│       ├── custom-select.js    — Dropdown component
+│       ├── file-upload.js      — Drag-and-drop upload component
+│       ├── loader.js           — Spinner overlay + skeleton helpers
+│       ├── events.js           — Cross-tab EventTarget bus
+│       ├── icons.js            — Inline SVG strings
+│       ├── logger.js           — Floating draggable log panel
+│       ├── modal.js            — Promise-based openConfirm / openPrompt
+│       ├── tabs.js             — Stub (single-tab app)
+│       ├── toast.js            — Transient notifications
+│       ├── tabs/
+│       │   └── image-video.js  — Editor coordinator (delegates to imgvid/ modules)
+│       └── imgvid/             — Editor modules
+│           ├── state.js        — Shared state singleton S, audio pool
+│           ├── history.js      — Undo/redo stack management
+│           ├── preview.js      — Preview zoom and size calculation
+│           ├── export.js       — Export logic and SSE progress
+│           ├── constants.js    — Transitions, effects, codecs, fonts
+│           ├── utils.js        — uid, fmt, snap, totalDur, buildCSSFilter…
+│           ├── waveform.js     — Waveform drawing, audio duration probe
+│           ├── props.js        — Property panels: slide, audio, subtitle, PIP
+│           ├── timeline.js     — Timeline render, drag-drop, resize, snap
+│           ├── playback.js     — Play/pause/seek transport controls
+│           ├── pip.js          — Picture-in-picture overlay management
+│           ├── preview-render.js — Canvas renderer: images, video, crop, effects
+│           ├── media-list.js   — Media browser: clips and audio list
+│           ├── exp-modal.js    — Export settings dialog
+│           └── services/       — Backend API service layer
+│               ├── upload.js   — File upload (images, clips, audio, PIP)
+│               ├── project.js  — Project CRUD, save/load archives
+│               └── template.js — Template CRUD, save/load .vproject archives
 └── docs/
     ├── api.md                  — REST API reference
     ├── architecture.md         — Backend & frontend architecture
