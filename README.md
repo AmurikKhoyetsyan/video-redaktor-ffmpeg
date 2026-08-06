@@ -113,6 +113,20 @@ VideoRedaktor/
 │   ├── index.html
 │   ├── css/
 │   └── js/
+│       ├── app.js              — Entry point: initialises logger and editor
+│       ├── api.js              — fetch helpers (getJSON, postJSON, uploadForm…)
+│       ├── audio-manager.js    — Singleton: one AudioPlayer at a time
+│       ├── audio-player.js     — Custom audio wrapper with waveform scrubbing
+│       ├── wave-renderer.js    — Canvas waveform renderer
+│       ├── custom-select.js    — Dropdown component
+│       ├── file-upload.js      — Drag-and-drop upload component
+│       ├── loader.js           — Spinner overlay + skeleton helpers
+│       ├── events.js           — Cross-tab EventTarget bus
+│       ├── icons.js            — Inline SVG strings
+│       ├── logger.js           — Floating draggable log panel
+│       ├── modal.js            — Promise-based openConfirm / openPrompt
+│       ├── tabs.js             — Stub (single-tab app)
+│       ├── toast.js            — Transient notifications
 │       ├── tabs/
 │       │   └── image-video.js  — Editor coordinator (delegates to imgvid/ modules)
 │       └── imgvid/             — Editor modules
@@ -123,6 +137,12 @@ VideoRedaktor/
 │           ├── constants.js    — Transitions, effects, codecs, fonts
 │           ├── utils.js        — uid, fmt, snap, totalDur, buildCSSFilter…
 │           ├── waveform.js     — Waveform drawing, audio duration probe
+│           ├── props.js        — Property panels: slide, audio, subtitle, PIP
+│           ├── timeline.js     — Timeline render, drag-drop, resize, snap
+│           ├── playback.js     — Play/pause/seek transport controls
+│           ├── pip.js          — Picture-in-picture overlay management
+│           ├── preview-render.js — Canvas renderer: images, video, crop, effects
+│           ├── media-list.js   — Media browser: clips and audio list
 │           ├── exp-modal.js    — Export settings dialog
 │           └── services/       — Backend API service layer
 │               ├── upload.js   — File upload (images, clips, audio, PIP)

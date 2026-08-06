@@ -2,10 +2,10 @@
 
 ## Overview
 
-`videoRedaktor` is a single-page FastAPI application. The backend serves a REST API under `/api/imgvid/` and the frontend is plain ES modules served as static files.
+`VideoRedaktor` is a single-page FastAPI application. The backend serves a REST API under `/api/imgvid/` and the frontend is plain ES modules served as static files.
 
 ```
-videoRedaktor/
+VideoRedaktor/
   app.py                   — FastAPI entry point, port 7861
   requirements.txt
   routers/
@@ -135,6 +135,9 @@ router.include_router(export.router)
 - `_make_project_buf(project)` — pack project JSON + media files into a ZIP buffer
 - `_extract_project_zip(zf)` — unpack .project archive and restore media files
 - `_finalize_project(project)` — assign UUID, write project JSON to disk
+- `_finalize_template(project)` — same as `_finalize_project` but sets `is_template=True`
+- `_collect_media_filenames(project)` — return set of all media filenames referenced by a project
+- `delete_orphaned_media(deleted_project)` — remove media files no longer referenced after a project/template is deleted
 
 ---
 
@@ -168,6 +171,7 @@ router.include_router(export.router)
     projects/    — project JSON files ({id}.json)
     templates/   — template JSON files ({id}.json)
   saved_projects/  — .project archives saved to disk
+  saved_templates/ — .vproject archives saved to disk
   logs/            — server log files (YYYY-MM-DD.log)
 ```
 
