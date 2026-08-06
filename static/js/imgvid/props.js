@@ -657,6 +657,7 @@ function _renderPropsSlide(clip) {
         $('pv-mute-audio')?.addEventListener('change', e => {
             clip.muteAudio = e.target.checked;
             S.dirty = true;
+            _cb.renderPreview();
         });
         $('pv-trimin')?.addEventListener('change', e => {
             clip.trimIn = Math.max(0, parseFloat(e.target.value) || 0);

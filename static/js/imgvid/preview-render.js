@@ -90,9 +90,10 @@ export function renderPreview() {
             _dom.previewVideo.load();
         }
         _dom.previewVideo.style.display = 'block';
-        const videoTime = local + (clip.trimIn || 0);
         const vSpeed    = clip.speed ?? 1;
+        const videoTime = local * vSpeed + (clip.trimIn || 0);
         if (_dom.previewVideo.playbackRate !== vSpeed) _dom.previewVideo.playbackRate = vSpeed;
+        _dom.previewVideo.muted = !!(clip.muteAudio);
         if (inTrans) {
             // Outgoing clip at its last frame — always frozen during transition
             if (!_dom.previewVideo.paused) _dom.previewVideo.pause();
@@ -122,9 +123,10 @@ export function renderPreview() {
                 _dom.previewVideoNext.load();
             }
             _dom.previewVideoNext.style.display = 'block';
-            const nVT = nextLocal + (nextClip.trimIn || 0);
             const nSpeed = nextClip.speed ?? 1;
+            const nVT = nextLocal * nSpeed + (nextClip.trimIn || 0);
             if (_dom.previewVideoNext.playbackRate !== nSpeed) _dom.previewVideoNext.playbackRate = nSpeed;
+            _dom.previewVideoNext.muted = !!(nextClip.muteAudio);
             if (!S.isPlaying) {
                 if (Math.abs(_dom.previewVideoNext.currentTime - nVT) > 0.15) _dom.previewVideoNext.currentTime = nVT;
                 if (!_dom.previewVideoNext.paused) _dom.previewVideoNext.pause();
