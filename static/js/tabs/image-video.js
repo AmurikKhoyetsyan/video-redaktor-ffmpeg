@@ -2640,8 +2640,8 @@ export async function init() {
             }
             previewVideo.style.display = 'block';
             _applyFramePos(previewVideo, clip);
-            const videoTime = local + (clip.trimIn || 0);
             const vSpeed    = clip.speed ?? 1;
+            const videoTime = local * vSpeed + (clip.trimIn || 0);
             if (previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
             previewVideo.volume = clip.clipVolume ?? 1;
             previewVideo.muted  = !!clip.muteAudio;
@@ -2674,8 +2674,8 @@ export async function init() {
                     previewVideoNext.load();
                 }
                 previewVideoNext.style.display = 'block';
-                const nVT = nextLocal + (nextClip.trimIn || 0);
                 const nSpeed = nextClip.speed ?? 1;
+                const nVT = nextLocal * nSpeed + (nextClip.trimIn || 0);
                 if (previewVideoNext.playbackRate !== nSpeed) previewVideoNext.playbackRate = nSpeed;
                 if (!S.isPlaying) {
                     if (Math.abs(previewVideoNext.currentTime - nVT) > 0.15) previewVideoNext.currentTime = nVT;
