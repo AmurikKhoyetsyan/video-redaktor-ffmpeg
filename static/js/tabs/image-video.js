@@ -4,7 +4,7 @@ import { openConfirm, openPrompt } from '../modal.js';
 import { ICONS }           from '../icons.js';
 import { events }          from '../events.js';
 
-import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS, CONTINUOUS_EFFECTS, PIP_START_EFFECTS, PIP_END_EFFECTS, PIP_CONTINUOUS_EFFECTS } from '../imgvid/constants.js';
+import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, CLIP_EFFECTS, CONTINUOUS_EFFECTS, PIP_EFFECTS, PIP_CONTINUOUS_EFFECTS } from '../imgvid/constants.js';
 import { uid, eh, fmt, fmtShort, buildCSSFilter, hexToRgba, _makeTextShadow, getSnapTargets, snap, snapToStep } from '../imgvid/utils.js';
 import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from '../imgvid/utils.js';
 import { drawWaveform, probeAudioDuration } from '../imgvid/waveform.js';
@@ -3588,7 +3588,7 @@ export async function init() {
             <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin:6px 0 2px">Начальный эффект</div>
             <label class="ive-label">Тип
                 <select class="ive-select" id="pv-start-eff-type">
-                    ${START_EFFECTS.map(e => `<option value="${e.value}"${(clip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
+                    ${CLIP_EFFECTS.map(e => `<option value="${e.value}"${(clip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
                 </select>
             </label>
             <label class="ive-label" id="pv-start-eff-dur-row" ${(!clip.startEffect?.type||clip.startEffect.type==='none')?'hidden':''}>Длит. (с)
@@ -3597,7 +3597,7 @@ export async function init() {
             <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin:6px 0 2px">Конечный эффект</div>
             <label class="ive-label">Тип
                 <select class="ive-select" id="pv-end-eff-type">
-                    ${END_EFFECTS.map(e => `<option value="${e.value}"${(clip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
+                    ${CLIP_EFFECTS.map(e => `<option value="${e.value}"${(clip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
                 </select>
             </label>
             <label class="ive-label" id="pv-end-eff-dur-row" ${(!clip.endEffect?.type||clip.endEffect.type==='none')?'hidden':''}>Длит. (с)
@@ -4601,8 +4601,8 @@ export async function init() {
         _normalizePip(pip);
         const isVideo = pip.type === 'video';
         const totalPip = S.pipLayers.length;
-        const seOpts = PIP_START_EFFECTS.map(e => `<option value="${e.value}"${(pip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('');
-        const eeOpts = PIP_END_EFFECTS.map(e =>   `<option value="${e.value}"${(pip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('');
+        const seOpts = PIP_EFFECTS.map(e => `<option value="${e.value}"${(pip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('');
+        const eeOpts = PIP_EFFECTS.map(e => `<option value="${e.value}"${(pip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('');
         const ceOpts = PIP_CONTINUOUS_EFFECTS.map(e => `<option value="${e.value}"${(pip.continuousEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('');
 
         propsBody.innerHTML = `<div class="ive-form">
