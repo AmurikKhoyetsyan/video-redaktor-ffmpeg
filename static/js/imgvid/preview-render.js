@@ -184,9 +184,25 @@ function _applyClipStartEndEffects(clip, local) {
         const p = Math.max(0, Math.min(1, local / d));
         if (p < 1) {
             switch (start.type) {
-                case 'fade-in':    opacity *= p; break;
+                case 'fade':
+                case 'fade-in':
+                case 'blur':
+                case 'blur-in':    opacity *= p; break;
                 case 'zoom-in':    scale = 0.5 + 0.5 * p; break;
                 case 'zoom-out':   scale = 1.5 - 0.5 * p; break;
+                case 'pop':
+                case 'bounce':
+                case 'bounce-in':
+                case 'elastic':
+                case 'elastic-in': opacity *= p; scale = 0.5 + 0.5 * p; break;
+                case 'rotate':
+                case 'rotate-in':
+                case 'flip-h':
+                case 'flip-h-in':
+                case 'flip-v':
+                case 'flip-v-in':
+                case 'center':
+                case 'reveal-center': opacity *= p; scale = 0.5 + 0.5 * p; break;
                 case 'slide-left': tx = (p - 1) * 100; break;
                 case 'slide-right':tx = (1 - p) * 100; break;
                 case 'slide-up':   ty = (p - 1) * 100; break;
@@ -200,9 +216,26 @@ function _applyClipStartEndEffects(clip, local) {
         const p = Math.max(0, Math.min(1, (dur - local) / d));
         if (p < 1) {
             switch (end.type) {
-                case 'fade-out':   opacity *= p; break;
+                case 'fade':
+                case 'fade-out':
+                case 'blur':
+                case 'blur-out':   opacity *= p; break;
                 case 'zoom-in':    scale *= 1 + (1 - p) * 0.5; break;
                 case 'zoom-out':   scale *= 0.5 + 0.5 * p; break;
+                case 'pop':
+                case 'pop-out':
+                case 'bounce':
+                case 'bounce-out':
+                case 'elastic':
+                case 'elastic-out': opacity *= p; scale *= 0.5 + 0.5 * p; break;
+                case 'rotate':
+                case 'rotate-out':
+                case 'flip-h':
+                case 'flip-h-out':
+                case 'flip-v':
+                case 'flip-v-out':
+                case 'center':
+                case 'hide-center': opacity *= p; scale *= 0.5 + 0.5 * p; break;
                 case 'slide-left': tx -= (1 - p) * 100; break;
                 case 'slide-right':tx += (1 - p) * 100; break;
                 case 'slide-up':   ty -= (1 - p) * 100; break;

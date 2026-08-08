@@ -97,9 +97,21 @@ def _compute_video_dur(slides: list) -> float:
 _KEN_BURNS_TYPES = {"ken-burns-in", "ken-burns-out", "ken-burns-lr", "ken-burns-rl"}
 
 
+_START_ALIASES = {
+    "fade":    "fade-in",
+    "bounce":  "bounce-in",
+    "elastic": "elastic-in",
+    "blur":    "blur-in",
+    "rotate":  "rotate-in",
+    "flip-h":  "flip-h-in",
+    "flip-v":  "flip-v-in",
+    "center":  "reveal-center",
+}
+
 def _start_effect_filters(se_type: str, se_dur: float, dur: float, w: int, h: int) -> list:
     if not se_type or se_type == "none":
         return []
+    se_type = _START_ALIASES.get(se_type, se_type)
     D = max(0.001, se_dur)
     if se_type == "fade-in":
         return [f"fade=type=in:start_time=0:duration={D:.3f}"]
@@ -186,9 +198,22 @@ def _start_effect_filters(se_type: str, se_dur: float, dur: float, w: int, h: in
     return []
 
 
+_END_ALIASES = {
+    "fade":    "fade-out",
+    "pop":     "pop-out",
+    "bounce":  "bounce-out",
+    "elastic": "elastic-out",
+    "blur":    "blur-out",
+    "rotate":  "rotate-out",
+    "flip-h":  "flip-h-out",
+    "flip-v":  "flip-v-out",
+    "center":  "hide-center",
+}
+
 def _end_effect_filters(ee_type: str, ee_dur: float, dur: float, w: int, h: int) -> list:
     if not ee_type or ee_type == "none":
         return []
+    ee_type = _END_ALIASES.get(ee_type, ee_type)
     D  = max(0.001, ee_dur)
     st = max(0.0, dur - D)
     if ee_type == "fade-out":

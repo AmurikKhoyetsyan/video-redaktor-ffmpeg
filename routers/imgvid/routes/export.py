@@ -191,7 +191,7 @@ async def export_video(
                             q.put(("error", f"Видеофайл не найден: {slide.get('file')}")); return
                         speed = float(slide.get("speed", 1) or 1)
                         trim_in = float(slide.get("trimIn", 0) or 0)
-                        load_dur = (dur / max(0.01, speed)) + trim_in + 0.1
+                        load_dur = (dur * max(0.01, speed)) + trim_in + 0.1
                         _s_inp = ["-t", f"{load_dur:.3f}", "-i", vp]
                     else:
                         img_path = os.path.join(IMAGES_DIR, slide.get("file", slide.get("image", "")))
@@ -249,7 +249,7 @@ async def export_video(
                     if clip_type == "video":
                         if trim_in > 0:
                             pre_parts.append(
-                                f"trim=start={trim_in:.3f}:duration={dur / max(0.01, speed):.3f},setpts=PTS-STARTPTS"
+                                f"trim=start={trim_in:.3f}:duration={dur * max(0.01, speed):.3f},setpts=PTS-STARTPTS"
                             )
                         if speed != 1.0:
                             pre_parts.append(f"setpts={1.0 / speed:.6f}*PTS")
@@ -487,7 +487,7 @@ async def export_video(
                         if _ctype == "video" and not _cmute:
                             _ca: list[str] = []
                             if _ctrm > 0 or _cspd != 1.0:
-                                _aud_dur = _cdur / max(0.01, _cspd)
+                                _aud_dur = _cdur * max(0.01, _cspd)
                                 _ca.append(f"atrim=start={_ctrm:.3f}:duration={_aud_dur:.3f},asetpts=PTS-STARTPTS")
                             if _cspd != 1.0:
                                 _ca.append(_atempo_chain(_cspd))
