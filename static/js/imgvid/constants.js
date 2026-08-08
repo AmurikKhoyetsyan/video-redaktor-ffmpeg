@@ -40,48 +40,29 @@ export const EFFECTS_DEF = [
 export const FONTS = ['Arial', 'Times New Roman', 'Georgia', 'Courier New', 'Verdana', 'Impact', 'Trebuchet MS'];
 export const ANIMS = ['none', 'fade-in', 'fade-out', 'slide-up', 'slide-down', 'typewriter', 'zoom-in'];
 
-// START effects for video/image clips (full-canvas slide, zoom, etc.)
-export const START_EFFECTS = [
-    // Appearance
-    { value: 'none',          label: 'Нет',               category: 'appearance' },
-    { value: 'fade-in',       label: 'Fade In',            category: 'appearance' },
-    { value: 'zoom-in',       label: 'Zoom In',            category: 'appearance' },
-    { value: 'zoom-out',      label: 'Zoom Out',           category: 'appearance' },
-    { value: 'pop',           label: 'Pop',                category: 'appearance' },
-    { value: 'bounce-in',     label: 'Bounce In',          category: 'appearance' },
-    { value: 'elastic-in',    label: 'Elastic In',         category: 'appearance' },
-    // Movement (full canvas slide — for clips)
-    { value: 'slide-left',    label: 'Slide from Left',    category: 'movement' },
-    { value: 'slide-right',   label: 'Slide from Right',   category: 'movement' },
-    { value: 'slide-up',      label: 'Slide from Top',     category: 'movement' },
-    { value: 'slide-down',    label: 'Slide from Bottom',  category: 'movement' },
-    // Special
-    { value: 'blur-in',       label: 'Blur In',            category: 'special' },
-    { value: 'rotate-in',     label: 'Rotate In',          category: 'special' },
-    { value: 'flip-h-in',     label: 'Flip H In',          category: 'special' },
-    { value: 'flip-v-in',     label: 'Flip V In',          category: 'special' },
-    { value: 'reveal-center', label: 'Reveal Center',      category: 'special' },
+// Unified effects list used for BOTH start and end of clips
+export const CLIP_EFFECTS = [
+    { value: 'none',        label: 'Нет',          category: 'appearance' },
+    { value: 'fade',        label: 'Fade',          category: 'appearance' },
+    { value: 'zoom-in',     label: 'Zoom In',       category: 'appearance' },
+    { value: 'zoom-out',    label: 'Zoom Out',      category: 'appearance' },
+    { value: 'pop',         label: 'Pop',           category: 'appearance' },
+    { value: 'bounce',      label: 'Bounce',        category: 'appearance' },
+    { value: 'elastic',     label: 'Elastic',       category: 'appearance' },
+    { value: 'slide-left',  label: 'Slide Left',    category: 'movement' },
+    { value: 'slide-right', label: 'Slide Right',   category: 'movement' },
+    { value: 'slide-up',    label: 'Slide Up',      category: 'movement' },
+    { value: 'slide-down',  label: 'Slide Down',    category: 'movement' },
+    { value: 'blur',        label: 'Blur',          category: 'special' },
+    { value: 'rotate',      label: 'Rotate',        category: 'special' },
+    { value: 'flip-h',      label: 'Flip H',        category: 'special' },
+    { value: 'flip-v',      label: 'Flip V',        category: 'special' },
+    { value: 'center',      label: 'Center',        category: 'special' },
 ];
 
-// END effects for video/image clips
-export const END_EFFECTS = [
-    { value: 'none',          label: 'Нет',                category: 'appearance' },
-    { value: 'fade-out',      label: 'Fade Out',           category: 'appearance' },
-    { value: 'zoom-in',       label: 'Zoom In',            category: 'appearance' },
-    { value: 'zoom-out',      label: 'Zoom Out',           category: 'appearance' },
-    { value: 'pop-out',       label: 'Pop Out',            category: 'appearance' },
-    { value: 'bounce-out',    label: 'Bounce Out',         category: 'appearance' },
-    { value: 'elastic-out',   label: 'Elastic Out',        category: 'appearance' },
-    { value: 'slide-left',    label: 'Slide to Left',      category: 'movement' },
-    { value: 'slide-right',   label: 'Slide to Right',     category: 'movement' },
-    { value: 'slide-up',      label: 'Slide to Top',       category: 'movement' },
-    { value: 'slide-down',    label: 'Slide to Bottom',    category: 'movement' },
-    { value: 'blur-out',      label: 'Blur Out',           category: 'special' },
-    { value: 'rotate-out',    label: 'Rotate Out',         category: 'special' },
-    { value: 'flip-h-out',    label: 'Flip H Out',         category: 'special' },
-    { value: 'flip-v-out',    label: 'Flip V Out',         category: 'special' },
-    { value: 'hide-center',   label: 'Hide Center',        category: 'special' },
-];
+// Keep old arrays as aliases for backwards compatibility
+export const START_EFFECTS = CLIP_EFFECTS;
+export const END_EFFECTS   = CLIP_EFFECTS;
 
 // CONTINUOUS (loop) effects for video/image clips
 export const CONTINUOUS_EFFECTS = [
@@ -106,35 +87,25 @@ export const CONTINUOUS_EFFECTS = [
     { value: 'spin-fast',     label: 'Быстрое вращение' },
 ];
 
-// PIP-specific START effects (no full-canvas slide — the PIP is a small overlay)
-export const PIP_START_EFFECTS = [
-    { value: 'none',          label: 'Нет',           category: 'appearance' },
-    { value: 'fade-in',       label: 'Fade In',        category: 'appearance' },
-    { value: 'zoom-in',       label: 'Zoom In',        category: 'appearance' },
-    { value: 'zoom-out',      label: 'Zoom Out',       category: 'appearance' },
-    { value: 'pop',           label: 'Pop',            category: 'appearance' },
-    { value: 'bounce-in',     label: 'Bounce In',      category: 'appearance' },
-    { value: 'elastic-in',    label: 'Elastic In',     category: 'appearance' },
-    { value: 'blur-in',       label: 'Blur In',        category: 'special' },
-    { value: 'rotate-in',     label: 'Rotate In',      category: 'special' },
-    { value: 'flip-h-in',     label: 'Flip H In',      category: 'special' },
-    { value: 'reveal-center', label: 'Reveal Center',  category: 'special' },
+// Unified PIP effects list (no full-canvas slides) for BOTH start and end
+export const PIP_EFFECTS = [
+    { value: 'none',        label: 'Нет',          category: 'appearance' },
+    { value: 'fade',        label: 'Fade',          category: 'appearance' },
+    { value: 'zoom-in',     label: 'Zoom In',       category: 'appearance' },
+    { value: 'zoom-out',    label: 'Zoom Out',      category: 'appearance' },
+    { value: 'pop',         label: 'Pop',           category: 'appearance' },
+    { value: 'bounce',      label: 'Bounce',        category: 'appearance' },
+    { value: 'elastic',     label: 'Elastic',       category: 'appearance' },
+    { value: 'blur',        label: 'Blur',          category: 'special' },
+    { value: 'rotate',      label: 'Rotate',        category: 'special' },
+    { value: 'flip-h',      label: 'Flip H',        category: 'special' },
+    { value: 'flip-v',      label: 'Flip V',        category: 'special' },
+    { value: 'center',      label: 'Center',        category: 'special' },
 ];
 
-// PIP-specific END effects
-export const PIP_END_EFFECTS = [
-    { value: 'none',          label: 'Нет',            category: 'appearance' },
-    { value: 'fade-out',      label: 'Fade Out',        category: 'appearance' },
-    { value: 'zoom-in',       label: 'Zoom In',         category: 'appearance' },
-    { value: 'zoom-out',      label: 'Zoom Out',        category: 'appearance' },
-    { value: 'pop-out',       label: 'Pop Out',         category: 'appearance' },
-    { value: 'bounce-out',    label: 'Bounce Out',      category: 'appearance' },
-    { value: 'elastic-out',   label: 'Elastic Out',     category: 'appearance' },
-    { value: 'blur-out',      label: 'Blur Out',        category: 'special' },
-    { value: 'rotate-out',    label: 'Rotate Out',      category: 'special' },
-    { value: 'flip-h-out',    label: 'Flip H Out',      category: 'special' },
-    { value: 'hide-center',   label: 'Hide Center',     category: 'special' },
-];
+// Keep old aliases for backwards compatibility
+export const PIP_START_EFFECTS = PIP_EFFECTS;
+export const PIP_END_EFFECTS   = PIP_EFFECTS;
 
 // PIP-specific CONTINUOUS effects
 export const PIP_CONTINUOUS_EFFECTS = [

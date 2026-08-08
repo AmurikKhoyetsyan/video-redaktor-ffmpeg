@@ -1,5 +1,5 @@
 import { S, _audioEls } from './state.js';
-import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, START_EFFECTS, END_EFFECTS } from './constants.js';
+import { TRANSITIONS, EFFECTS_DEF, FONTS, ANIMS, CLIP_EFFECTS } from './constants.js';
 import { uid, eh, fmt, snapToStep } from './utils.js';
 import { ICONS } from '../icons.js';
 import { toast } from '../toast.js';
@@ -505,7 +505,7 @@ function _renderPropsSlide(clip) {
         <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin:6px 0 2px">Начальный эффект</div>
         <label class="ive-label">Тип
             <select class="ive-select" id="pv-start-eff-type">
-                ${START_EFFECTS.map(e => `<option value="${e.value}"${(clip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
+                ${CLIP_EFFECTS.map(e => `<option value="${e.value}"${(clip.startEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
             </select>
         </label>
         <label class="ive-label" id="pv-start-eff-dur-row" ${(!clip.startEffect?.type||clip.startEffect.type==='none')?'hidden':''}>Длит. (с)
@@ -514,7 +514,7 @@ function _renderPropsSlide(clip) {
         <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin:6px 0 2px">Конечный эффект</div>
         <label class="ive-label">Тип
             <select class="ive-select" id="pv-end-eff-type">
-                ${END_EFFECTS.map(e => `<option value="${e.value}"${(clip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
+                ${CLIP_EFFECTS.map(e => `<option value="${e.value}"${(clip.endEffect?.type||'none')===e.value?' selected':''}>${e.label}</option>`).join('')}
             </select>
         </label>
         <label class="ive-label" id="pv-end-eff-dur-row" ${(!clip.endEffect?.type||clip.endEffect.type==='none')?'hidden':''}>Длит. (с)
