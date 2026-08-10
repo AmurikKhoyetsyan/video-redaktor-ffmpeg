@@ -5896,13 +5896,12 @@ export async function init() {
             count += newClips.length;
         }
 
-        // Audio — place after the last existing track, preserving relative offsets.
+        // Audio — place at playhead position, preserving relative offsets between tracks.
         if (_clipboard.audio?.length) {
-            const freeOff = _findFreeAudioOffset();
             const srcMin = Math.min(..._clipboard.audio.map(a => a.startOffset || 0));
             const newAudio = _clipboard.audio.map(a => {
                 const relOff = (a.startOffset || 0) - srcMin;
-                return { ...a, id: uid(), startOffset: Math.round((freeOff + relOff) * 1000) / 1000 };
+                return { ...a, id: uid(), startOffset: Math.round((t + relOff) * 1000) / 1000 };
             });
             newAudio.forEach(a => S.audioTracks.push(a));
             S.selAudioIdxs = new Set(newAudio.map((_, j) => S.audioTracks.length - newAudio.length + j));
