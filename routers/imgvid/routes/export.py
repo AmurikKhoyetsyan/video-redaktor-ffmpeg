@@ -557,6 +557,8 @@ async def export_video(
                 out_name = f"imgvid_{ts}.{ext}"
                 out_path = os.path.join(OUTPUT_DIR, out_name)
 
+                movflags = ["-movflags", "+faststart"] if ext in ("mp4", "mov", "m4v") else []
+
                 cmd = (
                     [FFMPEG, "-y", "-nostdin"]
                     + cmd_inputs
@@ -564,6 +566,7 @@ async def export_video(
                     + ["-map", f"[{final_video_label}]"]
                     + audio_map
                     + vcodec + acodec
+                    + movflags
                     + [out_path]
                 )
 
@@ -741,6 +744,7 @@ async def export_video(
                         + ["-map", f"[{_p2_final_v}]"]
                         + p2_audio_map
                         + vcodec + acodec
+                        + movflags
                         + [out_path]
                     )
                     app_log(f"Two-pass final: cmd_len={len(subprocess.list2cmdline(cmd))}", "INFO", "ImgVid")
