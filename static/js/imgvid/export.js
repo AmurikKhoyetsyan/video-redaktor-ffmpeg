@@ -121,6 +121,7 @@ function _onError(msg) {
     _dom.exportStatus.className   = 'status err';
     toast(msg, 'err');
     log(msg, 'err');
+    setTimeout(() => { _dom.exportProg.hidden = true; }, 8000);
 }
 
 function _onCancelled() {

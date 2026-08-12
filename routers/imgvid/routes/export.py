@@ -32,6 +32,7 @@ from routers.imgvid.ffmpeg_utils import (
     _KEN_BURNS_TYPES,
     _compute_video_dur,
     _probe_duration_clip,
+    _probe_has_audio,
     _continuous_effect_filters,
 )
 from routers.imgvid.codec_selector import (
@@ -484,7 +485,8 @@ async def export_video(
                         _ctrm  = float(_cs.get("trimIn", 0) or 0)
                         _cmute = _cs.get("muteAudio", False)
                         _cvol  = float(_cs.get("clipVolume") or 1)
-                        if _ctype == "video" and not _cmute:
+                        _vp = os.path.join(CLIPS_DIR, _cs.get("file", ""))
+                        if _ctype == "video" and not _cmute and _probe_has_audio(_vp):
                             _ca: list[str] = []
                             if _ctrm > 0 or _cspd != 1.0:
                                 _aud_dur = _cdur * max(0.01, _cspd)
@@ -555,6 +557,8 @@ async def export_video(
                 out_name = f"imgvid_{ts}.{ext}"
                 out_path = os.path.join(OUTPUT_DIR, out_name)
 
+                movflags = ["-movflags", "+faststart"] if ext in ("mp4", "mov", "m4v") else []
+
                 cmd = (
                     [FFMPEG, "-y", "-nostdin"]
                     + cmd_inputs
@@ -562,6 +566,7 @@ async def export_video(
                     + ["-map", f"[{final_video_label}]"]
                     + audio_map
                     + vcodec + acodec
+                    + movflags
                     + [out_path]
                 )
 
@@ -739,6 +744,7 @@ async def export_video(
                         + ["-map", f"[{_p2_final_v}]"]
                         + p2_audio_map
                         + vcodec + acodec
+                        + movflags
                         + [out_path]
                     )
                     app_log(f"Two-pass final: cmd_len={len(subprocess.list2cmdline(cmd))}", "INFO", "ImgVid")
