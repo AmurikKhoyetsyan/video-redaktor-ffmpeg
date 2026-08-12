@@ -60,6 +60,18 @@ _EFFECTS = {
 }
 
 
+def _probe_has_audio(path: str) -> bool:
+    try:
+        r = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
 def _probe_duration_clip(path: str) -> float:
     for entries in ("format=duration", "stream=duration"):
         try:

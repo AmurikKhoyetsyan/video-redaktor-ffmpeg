@@ -32,6 +32,7 @@ from routers.imgvid.ffmpeg_utils import (
     _KEN_BURNS_TYPES,
     _compute_video_dur,
     _probe_duration_clip,
+    _probe_has_audio,
     _continuous_effect_filters,
 )
 from routers.imgvid.codec_selector import (
@@ -484,7 +485,8 @@ async def export_video(
                         _ctrm  = float(_cs.get("trimIn", 0) or 0)
                         _cmute = _cs.get("muteAudio", False)
                         _cvol  = float(_cs.get("clipVolume") or 1)
-                        if _ctype == "video" and not _cmute:
+                        _vp = os.path.join(CLIPS_DIR, _cs.get("file", ""))
+                        if _ctype == "video" and not _cmute and _probe_has_audio(_vp):
                             _ca: list[str] = []
                             if _ctrm > 0 or _cspd != 1.0:
                                 _aud_dur = _cdur * max(0.01, _cspd)
