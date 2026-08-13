@@ -92,7 +92,7 @@ export async function init() {
     const curTime       = $('ive-cur-time');
     const totTime       = $('ive-tot-time');
     // Zoom
-    const zoomMode      = $('ive-zoom-mode');
+    const zoomModeGroup = $('ive-zoom-mode-group');
     const zoomDisplay   = $('ive-zoom-display');
     const zoomPct       = $('ive-zoom-pct');
     const zoomSign      = $('ive-zoom-sign');
@@ -337,8 +337,10 @@ export async function init() {
     });
 
     // ── Preview zoom ──────────────────────────────────────────────────────────
-    zoomMode.addEventListener('change', () => {
-        _applyZoom(zoomMode.value, 100);
+    zoomModeGroup?.querySelectorAll('.ive-zoom-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _applyZoom(btn.dataset.zoom, 100);
+        });
     });
 
     zoomPct.addEventListener('input', () => {
@@ -1616,7 +1618,13 @@ export async function init() {
     }
 
     // ── Preview zoom / size (delegated to imgvid/preview.js) ─────────────────
-    function _applyZoom(mode, pct) { PreviewMod.applyZoom(mode, pct); }
+    function _applyZoom(mode, pct) {
+        PreviewMod.applyZoom(mode, pct);
+        zoomModeGroup?.querySelectorAll('.ive-zoom-chip').forEach(b => {
+            b.classList.toggle('active', b.dataset.zoom === mode);
+        });
+        if (zoomDisplay) zoomDisplay.style.display = mode === 'custom' ? '' : 'none';
+    }
 
     function _getResolution() {
         const { w, h } = expModal.getResolution();
@@ -5677,7 +5685,7 @@ export async function init() {
     // ── Helpers ───────────────────────────────────────────────────────────────
     function _selectClip(idx, opts = {}) {
         const { ctrl, shift } = opts;
-        S.selAudioIdx = -1; S.selPipIdx = -1;
+        S.selAudioIdx = -1; S.selPipIdx = -1; S.selAudioIdxs = new Set();
         if (ctrl) {
             // Toggle idx in selIdxs
             if (S.selIdxs.has(idx)) {

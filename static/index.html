@@ -151,12 +151,12 @@
                             <span class="ive-tot-time" id="ive-tot-time">0:00.0</span>
                         </div>
                         <div class="ive-zoom-group">
-                            <select class="ive-zoom-mode-sel" id="ive-zoom-mode">
-                                <option value="fit">Fit</option>
-                                <option value="original">100%</option>
-                                <option value="cover">Cover</option>
-                            </select>
-                            <span class="ive-zoom-display" id="ive-zoom-display">Fit</span>
+                            <div class="ive-zoom-chips" id="ive-zoom-mode-group">
+                                <button class="ive-zoom-chip active" data-zoom="fit">Fit</button>
+                                <button class="ive-zoom-chip" data-zoom="original">100%</button>
+                                <button class="ive-zoom-chip" data-zoom="cover">Cover</button>
+                            </div>
+                            <span class="ive-zoom-display" id="ive-zoom-display" style="display:none">Fit</span>
                             <input type="number" class="ive-zoom-pct-input" id="ive-zoom-pct" min="10" max="800" step="5" value="100" style="display:none">
                             <span class="ive-zoom-pct-sign" id="ive-zoom-sign" style="display:none">%</span>
                         </div>

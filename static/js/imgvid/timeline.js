@@ -384,7 +384,8 @@ function _renderAudioTracks(total, contentW) {
                 document.addEventListener('mouseup', onUp);
             });
             row.appendChild(item);
-            drawWaveform(canvas, track.fileUrl);
+            const _visDur = track.duration !== undefined ? track.duration * (track.speed ?? 1) : null;
+            drawWaveform(canvas, track.fileUrl, track.trimIn || 0, _visDur);
         });
 
         _dom.audioTrackEl.appendChild(row);
