@@ -18,6 +18,9 @@ export function renderProps() {
     if (S.selPipIdx >= 0 && S.selPipIdx < S.pipLayers.length) {
         _renderPropsPip(S.pipLayers[S.selPipIdx], S.selPipIdx); return;
     }
+    if (S.selIdxs.size > 0 && S.selAudioIdx >= 0 && S.activeTab !== 'subs') {
+        _renderPropsMultiMixed(); return;
+    }
     if (S.selIdxs.size > 1 && S.activeTab !== 'subs') {
         _renderPropsMulti(); return;
     }
@@ -327,7 +330,7 @@ function _renderPropsAudio(track, idx) {
         <label class="ive-label">Громкость
             <div class="ive-range-row">
                 <input class="ive-range" type="range" id="acp-vol" min="0" max="2" step="0.02" value="${track.volume ?? 1}">
-                <span class="ive-range-val" id="acp-vol-v">${(track.volume ?? 1).toFixed(2)}</span>
+                <input class="ive-input" id="acp-vol-v" type="number" min="0" max="2" step="0.02" style="width:72px;flex-shrink:0" value="${(track.volume ?? 1).toFixed(2)}">
             </div>
         </label>
         <div class="ive-row2">
@@ -345,7 +348,7 @@ function _renderPropsAudio(track, idx) {
         <label class="ive-label">Скорость
             <div class="ive-range-row">
                 <input class="ive-range" type="range" id="acp-speed-range" min="0.1" max="4" step="0.05" value="${Math.min(4, curSpeed)}">
-                <input class="ive-input" id="acp-speed-input" type="number" min="0.1" max="10" step="0.05" style="width:60px;flex-shrink:0" value="${curSpeed}">
+                <input class="ive-input" id="acp-speed-input" type="number" min="0.1" max="10" step="0.05" style="width:72px;flex-shrink:0" value="${curSpeed}">
             </div>
             <div id="acp-speed-display" style="font-size:11px;color:var(--text-dim)">${curSpeed}×</div>
         </label>
@@ -359,10 +362,19 @@ function _renderPropsAudio(track, idx) {
     const volEl = $('acp-vol'), volV = $('acp-vol-v');
     volEl.addEventListener('input', () => {
         track.volume = parseFloat(volEl.value);
-        volV.textContent = track.volume.toFixed(2);
+        volV.value = track.volume.toFixed(2);
         S.dirty = true;
         const el = _audioEls.get(track.id);
         if (el) el.volume = Math.max(0, Math.min(1, track.volume));
+    });
+    volV.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(2, parseFloat(volV.value) || 0));
+        track.volume = v;
+        volEl.value = v;
+        volV.value = v.toFixed(2);
+        S.dirty = true;
+        const el = _audioEls.get(track.id);
+        if (el) el.volume = Math.max(0, Math.min(1, v));
     });
     $('acp-fi').addEventListener('change', e => { track.fadeIn = parseFloat(e.target.value) || 0; S.dirty = true; });
     $('acp-fo').addEventListener('change', e => { track.fadeOut = parseFloat(e.target.value) || 0; S.dirty = true; });
@@ -523,7 +535,7 @@ function _renderPropsSlide(clip) {
         <label class="ive-label">Скорость
             <div class="ive-range-row">
                 <input class="ive-range" type="range" id="pv-speed-range" min="0.1" max="4" step="0.05" value="${Math.min(4, clip.speed??1)}">
-                <input class="ive-input" id="pv-speed-input" type="number" min="0.1" max="10" step="0.05" style="width:60px;flex-shrink:0" value="${clip.speed??1}">
+                <input class="ive-input" id="pv-speed-input" type="number" min="0.1" max="10" step="0.05" style="width:72px;flex-shrink:0" value="${clip.speed??1}">
             </div>
             <div id="pv-speed-display" style="font-size:11px;color:var(--text-dim)">${(clip.speed??1)}×</div>
         </label>
@@ -1021,30 +1033,49 @@ function _renderPropsMulti() {
             </select>
         </label>
         <label class="ive-label">Скорость
-            <select class="ive-select" id="multi-speed">
-                <option value="">— без изменений —</option>
-                <option value="0.25">0.25×</option>
-                <option value="0.5">0.5×</option>
-                <option value="0.75">0.75×</option>
-                <option value="1">1× (норма)</option>
-                <option value="1.5">1.5×</option>
-                <option value="2">2×</option>
-                <option value="4">4×</option>
-            </select>
+            <div class="ive-range-row">
+                <input class="ive-range" type="range" id="multi-spd-range" min="0.1" max="4" step="0.05" value="1">
+                <input class="ive-input" id="multi-spd-val" type="number" min="0.1" max="10" step="0.05" style="width:72px;flex-shrink:0" value="1">
+            </div>
+        </label>
+        <label class="ive-label">Громкость (видео)
+            <div class="ive-range-row">
+                <input class="ive-range" type="range" id="multi-vol-range" min="0" max="2" step="0.02" value="1">
+                <input class="ive-input" id="multi-vol-val" type="number" min="0" max="2" step="0.02" style="width:72px;flex-shrink:0" value="1.00">
+            </div>
         </label>
         <button class="btn btn-sm" id="multi-apply" style="margin-top:8px">Применить</button>
         <button class="btn btn-sm danger" id="multi-delete" style="margin-top:4px">Удалить выбранные</button>
     </div>`;
 
+    const spdRange = $('multi-spd-range'), spdVal = $('multi-spd-val');
+    spdRange.addEventListener('input', () => { spdVal.value = parseFloat(spdRange.value); });
+    spdVal.addEventListener('change', () => {
+        const v = Math.max(0.1, Math.min(10, parseFloat(spdVal.value) || 1));
+        spdVal.value = v; spdRange.value = Math.min(4, v);
+    });
+
+    const volRange = $('multi-vol-range'), volVal = $('multi-vol-val');
+    volRange.addEventListener('input', () => { volVal.value = parseFloat(volRange.value).toFixed(2); });
+    volVal.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(2, parseFloat(volVal.value) || 0));
+        volVal.value = v.toFixed(2); volRange.value = v;
+    });
+
     $('multi-apply').addEventListener('click', () => {
         const dur   = parseFloat($('multi-dur').value);
         const trans = $('multi-trans').value;
-        const spd   = parseFloat($('multi-speed').value);
+        const spd   = parseFloat(spdVal.value);
+        const vol   = parseFloat(volVal.value);
         [...S.selIdxs].forEach(i => {
             const c = S.clips[i]; if (!c) return;
             if (isFinite(dur) && dur >= 0.5) c.duration = dur;
-            if (trans)          { c.transition = c.transition || {}; c.transition.type = trans; }
-            if (isFinite(spd))  c.speed = spd;
+            if (trans) { c.transition = c.transition || {}; c.transition.type = trans; }
+            if (isFinite(spd) && spd > 0) {
+                c.speed = spd;
+                if (c.originalDuration !== undefined) c.duration = Math.max(0.5, Math.round((c.originalDuration / spd) * 10) / 10);
+            }
+            if (c.type === 'video' && isFinite(vol)) c.volume = vol;
         });
         _cb.pushHistory();
         S.dirty = true;
@@ -1107,21 +1138,44 @@ function _renderPropsMultiAudio() {
         <label class="ive-label">Громкость
             <div class="ive-range-row">
                 <input class="ive-range" type="range" id="multi-audio-vol" min="0" max="2" step="0.01" value="1">
-                <span class="ive-range-val" id="multi-audio-vol-val">100%</span>
+                <input class="ive-input" id="multi-audio-vol-val" type="number" min="0" max="2" step="0.01" style="width:72px;flex-shrink:0" value="1.00">
             </div>
         </label>
-        <button class="btn btn-sm" id="multi-audio-apply" style="margin-top:8px">Применить громкость</button>
+        <label class="ive-label">Скорость
+            <div class="ive-range-row">
+                <input class="ive-range" type="range" id="multi-audio-spd" min="0.1" max="4" step="0.05" value="1">
+                <input class="ive-input" id="multi-audio-spd-val" type="number" min="0.1" max="10" step="0.05" style="width:72px;flex-shrink:0" value="1">
+            </div>
+        </label>
+        <button class="btn btn-sm" id="multi-audio-apply" style="margin-top:8px">Применить</button>
         <button class="btn btn-sm danger" id="multi-audio-delete" style="margin-top:4px">Удалить выбранные</button>
     </div>`;
-    const volEl = $('multi-audio-vol');
-    const volVal = $('multi-audio-vol-val');
-    volEl?.addEventListener('input', () => { if (volVal) volVal.textContent = Math.round(parseFloat(volEl.value) * 100) + '%'; });
+    const volEl = $('multi-audio-vol'), volVal = $('multi-audio-vol-val');
+    volEl?.addEventListener('input', () => { if (volVal) volVal.value = parseFloat(volEl.value).toFixed(2); });
+    volVal?.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(2, parseFloat(volVal.value) || 0));
+        volVal.value = v.toFixed(2); if (volEl) volEl.value = v;
+    });
+    const spdEl = $('multi-audio-spd'), spdVal = $('multi-audio-spd-val');
+    spdEl?.addEventListener('input', () => { if (spdVal) spdVal.value = parseFloat(spdEl.value); });
+    spdVal?.addEventListener('change', () => {
+        const v = Math.max(0.1, Math.min(10, parseFloat(spdVal.value) || 1));
+        spdVal.value = v; if (spdEl) spdEl.value = Math.min(4, v);
+    });
     $('multi-audio-apply')?.addEventListener('click', () => {
-        const vol = parseFloat($('multi-audio-vol').value);
-        [...S.selAudioIdxs].forEach(i => { if (S.audioTracks[i]) S.audioTracks[i].volume = vol; });
+        const vol = parseFloat(volEl.value);
+        const spd = parseFloat(spdVal?.value || spdEl?.value || 1);
+        [...S.selAudioIdxs].forEach(i => {
+            const t = S.audioTracks[i]; if (!t) return;
+            if (isFinite(vol)) t.volume = vol;
+            if (isFinite(spd) && spd > 0) {
+                t.speed = spd;
+                if (t.originalDuration !== undefined) t.duration = t.originalDuration / spd;
+            }
+        });
         _cb.pushHistory();
         S.dirty = true;
-        toast('Громкость применена к ' + S.selAudioIdxs.size + ' дорожкам', 'ok');
+        toast('Применено к ' + S.selAudioIdxs.size + ' дорожкам', 'ok');
         _cb.renderAll();
     });
     $('multi-audio-delete')?.addEventListener('click', () => {
@@ -1135,5 +1189,63 @@ function _renderPropsMultiAudio() {
         S.selAudioIdx = -1; S.selAudioIdxs = new Set();
         _cb.pushHistory();
         S.dirty = true; _cb.renderAll();
+    });
+}
+
+function _renderPropsMultiMixed() {
+    const $ = id => document.getElementById(id);
+    const clipCount = S.selIdxs.size;
+    const audioCount = S.selAudioIdxs.size;
+    _dom.propsBody.innerHTML = `<div class="ive-form">
+        <div style="color:var(--accent);font-size:12px;margin-bottom:8px">Слайды: ${clipCount} &nbsp;·&nbsp; Аудио: ${audioCount}</div>
+        <label class="ive-label">Скорость
+            <div class="ive-range-row">
+                <input class="ive-range" type="range" id="mix-spd-range" min="0.1" max="4" step="0.05" value="1">
+                <input class="ive-input" id="mix-spd-val" type="number" min="0.1" max="10" step="0.05" style="width:72px;flex-shrink:0" value="1">
+            </div>
+        </label>
+        <label class="ive-label">Громкость
+            <div class="ive-range-row">
+                <input class="ive-range" type="range" id="mix-vol-range" min="0" max="2" step="0.02" value="1">
+                <input class="ive-input" id="mix-vol-val" type="number" min="0" max="2" step="0.02" style="width:72px;flex-shrink:0" value="1.00">
+            </div>
+        </label>
+        <button class="btn btn-sm" id="mix-apply" style="margin-top:8px">Применить</button>
+    </div>`;
+    const spdR = $('mix-spd-range'), spdV = $('mix-spd-val');
+    spdR.addEventListener('input', () => { spdV.value = parseFloat(spdR.value); });
+    spdV.addEventListener('change', () => {
+        const v = Math.max(0.1, Math.min(10, parseFloat(spdV.value) || 1));
+        spdV.value = v; spdR.value = Math.min(4, v);
+    });
+    const volR = $('mix-vol-range'), volV = $('mix-vol-val');
+    volR.addEventListener('input', () => { volV.value = parseFloat(volR.value).toFixed(2); });
+    volV.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(2, parseFloat(volV.value) || 0));
+        volV.value = v.toFixed(2); volR.value = v;
+    });
+    $('mix-apply').addEventListener('click', () => {
+        const spd = parseFloat(spdV.value);
+        const vol = parseFloat(volV.value);
+        [...S.selIdxs].forEach(i => {
+            const c = S.clips[i]; if (!c) return;
+            if (isFinite(spd) && spd > 0) {
+                c.speed = spd;
+                if (c.originalDuration !== undefined) c.duration = Math.max(0.5, Math.round((c.originalDuration / spd) * 10) / 10);
+            }
+            if (c.type === 'video' && isFinite(vol)) c.volume = vol;
+        });
+        [...S.selAudioIdxs].forEach(i => {
+            const t = S.audioTracks[i]; if (!t) return;
+            if (isFinite(spd) && spd > 0) {
+                t.speed = spd;
+                if (t.originalDuration !== undefined) t.duration = t.originalDuration / spd;
+            }
+            if (isFinite(vol)) t.volume = vol;
+        });
+        _cb.pushHistory();
+        S.dirty = true;
+        toast('Применено', 'ok');
+        _cb.renderAll();
     });
 }

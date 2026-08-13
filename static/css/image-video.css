@@ -657,6 +657,43 @@
     color: #8aaccc;
 }
 
+.ive-zoom-chips {
+    display: flex;
+    border: 1px solid #1a2535;
+    border-radius: 5px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, .3);
+}
+
+.ive-zoom-chip {
+    background: transparent;
+    border: none;
+    border-right: 1px solid #1e2d40;
+    color: #8aaccc;
+    font-size: 11px;
+    font-family: inherit;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: background .12s, color .12s;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.ive-zoom-chip:last-child {
+    border-right: none;
+}
+
+.ive-zoom-chip:hover {
+    background: rgba(255, 255, 255, .07);
+    color: #b8d0e8;
+}
+
+.ive-zoom-chip.active {
+    background: rgba(74, 158, 255, .22);
+    color: #4a9eff;
+    font-weight: 600;
+}
+
 .ive-zoom-display {
     font-size: 11px;
     color: #485868;
