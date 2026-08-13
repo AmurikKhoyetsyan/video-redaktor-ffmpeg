@@ -2287,6 +2287,7 @@ export async function init() {
                     if (e.button !== 0) return;
                     e.stopPropagation(); e.preventDefault();
                     if (e.ctrlKey) {
+                        S.selIdx = -1; S.selIdxs = new Set();
                         if (S.selAudioIdxs.has(i)) {
                             S.selAudioIdxs.delete(i);
                             if (S.selAudioIdx === i) S.selAudioIdx = [...S.selAudioIdxs].at(-1) ?? -1;
