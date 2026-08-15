@@ -1561,6 +1561,69 @@ export async function init() {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // Reversed audio (Web Audio API) — for preview of reversed video clips
+    // ══════════════════════════════════════════════════════════════════════════
+
+    let _revCtx      = null;   // AudioContext
+    let _revBuf      = null;   // { url, buffer, fileDuration }
+    let _revSrc      = null;   // current AudioBufferSourceNode
+    let _revActiveId = null;   // clip.id whose audio is playing
+
+    function _stopRevAudio() {
+        if (_revSrc) {
+            try { _revSrc.stop(0); } catch(_) {}
+            _revSrc.disconnect();
+            _revSrc = null;
+        }
+        _revActiveId = null;
+    }
+
+    function _playRevAudio(clip, local) {
+        _stopRevAudio();
+        if (!_revCtx || !_revBuf || _revBuf.url !== clip.fileUrl) return;
+        if (clip.muteAudio) return;
+        const spd = clip.speed ?? 1;
+        const trimIn = clip.trimIn || 0;
+        // In the fully-reversed buffer, position for `local` within the clip:
+        // revOffset = fileDuration - trimIn - clipDuration*spd + local*spd
+        const revOffset = _revBuf.fileDuration - trimIn - clip.duration * spd + local * spd;
+        if (revOffset < 0 || revOffset >= _revBuf.buffer.duration) return;
+        const gain = _revCtx.createGain();
+        gain.gain.value = clip.clipVolume ?? 1;
+        _revSrc = _revCtx.createBufferSource();
+        _revSrc.buffer = _revBuf.buffer;
+        _revSrc.playbackRate.value = spd;
+        _revSrc.connect(gain);
+        gain.connect(_revCtx.destination);
+        _revSrc.start(0, revOffset);
+        _revActiveId = clip.id;
+    }
+
+    async function _loadRevAudio(clip) {
+        const url = clip.fileUrl;
+        if (_revBuf?.url === url) return;  // already loaded
+        if (!_revCtx) _revCtx = new (window.AudioContext || window.webkitAudioContext)();
+        _stopRevAudio();
+        _revBuf = null;
+        try {
+            const ab = await fetch(url).then(r => r.arrayBuffer());
+            const decoded = await _revCtx.decodeAudioData(ab);
+            const fileDur = decoded.duration;
+            for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+                decoded.getChannelData(ch).reverse();
+            }
+            _revBuf = { url, buffer: decoded, fileDuration: fileDur };
+            // Auto-start if still playing and same clip is still active
+            if (S.isPlaying) {
+                const info = clipAtTime(S.currentTime);
+                if (info && info.clip.id === clip.id && info.clip.reverse) {
+                    _playRevAudio(info.clip, info.local);
+                }
+            }
+        } catch(e) { /* no audio stream or load error — ignore */ }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // Playback engine
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -1576,6 +1639,12 @@ export async function init() {
         playPauseBtn.innerHTML = ICONS.pause;
         playPauseBtn.classList.add('playing');
         _syncAudio(S.currentTime, true);
+        // Start reversed audio if current clip is reversed
+        const _revStartInfo = clipAtTime(S.currentTime);
+        if (_revStartInfo && _revStartInfo.clip.reverse && !_revStartInfo.clip.muteAudio) {
+            _loadRevAudio(_revStartInfo.clip);   // loads then auto-starts
+            _playRevAudio(_revStartInfo.clip, _revStartInfo.local);  // start immediately if buf ready
+        }
         S._rafId = requestAnimationFrame(_tick);
     }
 
@@ -1585,6 +1654,7 @@ export async function init() {
         playPauseBtn.classList.remove('playing');
         if (S._rafId) { cancelAnimationFrame(S._rafId); S._rafId = null; }
         _pauseAllAudio();
+        _stopRevAudio();
         previewVideo.pause();
         // Pause all PIP video elements
         _pipEls.forEach(({ video }) => { if (video) video.pause(); });
@@ -2659,14 +2729,28 @@ export async function init() {
             previewVideo.style.display = 'block';
             _applyFramePos(previewVideo, clip);
             const vSpeed    = clip.speed ?? 1;
-            const videoTime = local * vSpeed + (clip.trimIn || 0);
-            if (previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
+            const isReverse = !!(clip.reverse);
+            const videoTime = isReverse
+                ? (clip.duration - local) * vSpeed + (clip.trimIn || 0)
+                : local * vSpeed + (clip.trimIn || 0);
+            if (!isReverse && previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
             previewVideo.volume = clip.clipVolume ?? 1;
-            previewVideo.muted  = !!clip.muteAudio;
-            if (inTrans) {
-                // Outgoing clip at its last frame — always frozen during transition
+            // Mute video element when reversed — audio is handled by Web Audio API
+            previewVideo.muted  = !!(clip.muteAudio) || isReverse;
+            // Reversed audio: detect clip entry and (re)start buffer playback
+            if (isReverse && S.isPlaying) {
+                if (_revActiveId !== clip.id) {
+                    // Entered a new reversed clip — load buffer and start audio
+                    _loadRevAudio(clip);
+                    _playRevAudio(clip, local);
+                }
+            } else if (!isReverse && _revActiveId !== null) {
+                _stopRevAudio();
+            }
+            if (inTrans || isReverse) {
+                // Reversed clips and outgoing-transition clips are always scrubbed manually
                 if (!previewVideo.paused) previewVideo.pause();
-                if (Math.abs(previewVideo.currentTime - videoTime) > 0.05) previewVideo.currentTime = videoTime;
+                if (Math.abs(previewVideo.currentTime - videoTime) > 0.08) previewVideo.currentTime = videoTime;
             } else if (!S.isPlaying) {
                 if (Math.abs(previewVideo.currentTime - videoTime) > 0.15) previewVideo.currentTime = videoTime;
                 if (!previewVideo.paused) previewVideo.pause();
@@ -3662,6 +3746,9 @@ export async function init() {
             <label class="ive-toggle-row ive-label">Убрать аудио видео
                 <input class="ive-toggle" type="checkbox" id="pv-mute-audio"${clip.muteAudio ? ' checked' : ''}>
             </label>
+            <label class="ive-toggle-row ive-label">Обратно
+                <input class="ive-toggle" type="checkbox" id="pv-reverse"${clip.reverse ? ' checked' : ''}>
+            </label>
             <label class="ive-label">Вход (с)
                 <input class="ive-input" id="pv-trimin" type="number" min="0" step="0.1" value="${clip.trimIn || 0}" title="Начальная точка в файле">
             </label>` : ''}
@@ -3834,6 +3921,10 @@ export async function init() {
                 clip.muteAudio = e.target.checked;
                 previewVideo.muted = e.target.checked;
                 S.dirty = true;
+            });
+            $('pv-reverse')?.addEventListener('change', e => {
+                clip.reverse = e.target.checked;
+                S.dirty = true; renderPreview();
             });
             $('pv-trimin')?.addEventListener('change', e => {
                 clip.trimIn = Math.max(0, parseFloat(e.target.value) || 0);

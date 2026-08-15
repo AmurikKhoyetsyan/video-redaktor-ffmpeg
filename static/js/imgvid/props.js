@@ -539,6 +539,9 @@ function _renderPropsSlide(clip) {
             </div>
             <div id="pv-speed-display" style="font-size:11px;color:var(--text-dim)">${(clip.speed??1)}×</div>
         </label>
+        ${isVideo ? `<label class="ive-toggle-row ive-label">Обратно
+            <input class="ive-toggle" type="checkbox" id="pv-reverse"${clip.reverse ? ' checked' : ''}>
+        </label>` : ''}
         <div style="font-size:11px;font-weight:600;color:var(--text-dim);margin:6px 0 2px">Позиция на кадре</div>
         <div class="ive-row2">
             <label class="ive-label">X%<input class="ive-input" type="number" id="pv-frame-x" min="-200" max="300" step="1" value="${clip.frameX||0}"></label>
@@ -668,6 +671,11 @@ function _renderPropsSlide(clip) {
     if (isVideo) {
         $('pv-mute-audio')?.addEventListener('change', e => {
             clip.muteAudio = e.target.checked;
+            S.dirty = true;
+            _cb.renderPreview();
+        });
+        $('pv-reverse')?.addEventListener('change', e => {
+            clip.reverse = e.target.checked;
             S.dirty = true;
             _cb.renderPreview();
         });
