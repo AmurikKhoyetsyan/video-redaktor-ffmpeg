@@ -50,7 +50,9 @@ export async function init() {
             const e = (t.startOffset || 0) + (t.duration !== undefined ? t.duration : (t.originalDuration || 0));
             return Math.max(m, e);
         }, 0);
-        return Math.max(totalDur(), audioEnd);
+        const subEnd = S.subtitles.reduce((m, s) => Math.max(m, s.end || 0), 0);
+        const pipEnd = S.pipLayers.reduce((m, p) => Math.max(m, p.endTime || 0), 0);
+        return Math.max(totalDur(), audioEnd, subEnd, pipEnd);
     };
 
     const section       = document.querySelector('[data-panel="imgvid"]');
@@ -2089,13 +2091,17 @@ export async function init() {
     function renderTimeline() {
         const total = totalDur();
         totalDurEl.textContent = total.toFixed(1) + 'с';
-        // Extend timeline to cover audio tracks that run beyond slides
+        // Extend timeline to cover all tracks (audio, subtitle, PIP) beyond slides
         const audioEnd = S.audioTracks.reduce((max, t) => {
             const end = (t.startOffset || 0) + (t.duration !== undefined ? t.duration : (t.originalDuration || 0));
             return Math.max(max, end);
         }, 0);
-        const extTotal = Math.max(total, audioEnd);
-        const contentW = Math.max(extTotal * S.pxPerSec, (tracksScroll.clientWidth || 500));
+        const subEnd = S.subtitles.reduce((m, s) => Math.max(m, s.end || 0), 0);
+        const pipEnd = S.pipLayers.reduce((m, p) => Math.max(m, p.endTime || 0), 0);
+        const extTotal = Math.max(total, audioEnd, subEnd, pipEnd);
+        const visibleW = tracksScroll.clientWidth || 500;
+        // Always keep ≥20% of visible editor width as empty space after the last content
+        const contentW = Math.max(extTotal * S.pxPerSec + visibleW * 0.2, visibleW);
         tracksInner.style.minWidth = contentW + 'px';
         _renderRuler(contentW, extTotal);
         _renderVideoTrack(extTotal);
@@ -2123,7 +2129,8 @@ export async function init() {
     }
 
     function _renderVideoTrack(total) {
-        videoTrackEl.style.width = Math.max(total * S.pxPerSec, tracksScroll.clientWidth || 500) + 'px';
+        const visibleW = tracksScroll.clientWidth || 500;
+        videoTrackEl.style.width = Math.max(total * S.pxPerSec + visibleW * 0.2, visibleW) + 'px';
         videoTrackEl.innerHTML = '';
         if (!S.clips.length) {
             videoTrackEl.innerHTML = '<div class="ive-tl-empty-abs">Добавьте медиафайлы</div>'; return;
@@ -2507,7 +2514,8 @@ export async function init() {
     }
 
     function _renderSubsTrack(total) {
-        subTrackEl.style.width = Math.max(total * S.pxPerSec, tracksScroll.clientWidth || 500) + 'px';
+        const visibleW = tracksScroll.clientWidth || 500;
+        subTrackEl.style.width = Math.max(total * S.pxPerSec + visibleW * 0.2, visibleW) + 'px';
         subTrackEl.innerHTML = '';
         S.subtitles.forEach((sub, si) => {
             const w = Math.max(8, ((sub.end || 3) - (sub.start || 0)) * S.pxPerSec);
@@ -4478,7 +4486,8 @@ export async function init() {
 
     function _renderPipTrack(total) {
         if (!pipTrackEl) return;
-        const contentW = Math.max(total * S.pxPerSec, (tracksScroll.clientWidth || 500));
+        const visibleW = tracksScroll.clientWidth || 500;
+        const contentW = Math.max(total * S.pxPerSec + visibleW * 0.2, visibleW);
         const ROW_H = 32;
 
         pipTrackEl.innerHTML = '';
