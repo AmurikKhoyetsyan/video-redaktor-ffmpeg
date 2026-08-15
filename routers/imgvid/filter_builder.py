@@ -44,6 +44,7 @@ def build_slide_filter(
     speed = float(slide.get("speed", 1) or 1)
     trim_in = float(slide.get("trimIn", 0) or 0)
     dur = float(slide.get("duration", 3))
+    reverse = bool(slide.get("reverse", False))
 
     # Frame position/size: place the slide in a sub-region of the canvas.
     # Values are percentages of the output canvas dimensions.
@@ -64,10 +65,12 @@ def build_slide_filter(
     pre_parts: list[str] = []
 
     if clip_type == "video":
-        if trim_in > 0:
+        if trim_in > 0 or reverse:
             pre_parts.append(
                 f"trim=start={trim_in:.3f}:duration={dur / max(0.01, speed):.3f},setpts=PTS-STARTPTS"
             )
+        if reverse:
+            pre_parts.append("reverse")
         if speed != 1.0:
             pre_parts.append(f"setpts={1.0 / speed:.6f}*PTS")
     else:

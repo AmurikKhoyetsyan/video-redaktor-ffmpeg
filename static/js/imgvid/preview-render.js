@@ -91,11 +91,14 @@ export function renderPreview() {
         }
         _dom.previewVideo.style.display = 'block';
         const vSpeed    = clip.speed ?? 1;
-        const videoTime = local * vSpeed + (clip.trimIn || 0);
-        if (_dom.previewVideo.playbackRate !== vSpeed) _dom.previewVideo.playbackRate = vSpeed;
+        const isReverse = !!(clip.reverse);
+        const videoTime = isReverse
+            ? (clip.duration - local) * vSpeed + (clip.trimIn || 0)
+            : local * vSpeed + (clip.trimIn || 0);
+        if (!isReverse && _dom.previewVideo.playbackRate !== vSpeed) _dom.previewVideo.playbackRate = vSpeed;
         _dom.previewVideo.muted = !!(clip.muteAudio);
-        if (inTrans) {
-            // Outgoing clip at its last frame — always frozen during transition
+        if (inTrans || isReverse) {
+            // Reversed clips and outgoing-transition clips are always scrubbed manually
             if (!_dom.previewVideo.paused) _dom.previewVideo.pause();
             if (Math.abs(_dom.previewVideo.currentTime - videoTime) > 0.05) _dom.previewVideo.currentTime = videoTime;
         } else if (!S.isPlaying) {

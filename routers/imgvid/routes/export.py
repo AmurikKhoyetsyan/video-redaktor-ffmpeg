@@ -247,11 +247,14 @@ async def export_video(
                     pre_parts: list[str] = []
                     cur_scale_f = scale_f
 
+                    reverse = bool(slide.get("reverse", False))
                     if clip_type == "video":
-                        if trim_in > 0:
+                        if trim_in > 0 or reverse:
                             pre_parts.append(
-                                f"trim=start={trim_in:.3f}:duration={dur * max(0.01, speed):.3f},setpts=PTS-STARTPTS"
+                                f"trim=start={trim_in:.3f}:duration={dur / max(0.01, speed):.3f},setpts=PTS-STARTPTS"
                             )
+                        if reverse:
+                            pre_parts.append("reverse")
                         if speed != 1.0:
                             pre_parts.append(f"setpts={1.0 / speed:.6f}*PTS")
                     else:
@@ -485,12 +488,15 @@ async def export_video(
                         _ctrm  = float(_cs.get("trimIn", 0) or 0)
                         _cmute = _cs.get("muteAudio", False)
                         _cvol  = float(_cs.get("clipVolume") or 1)
+                        _crev  = bool(_cs.get("reverse", False))
                         _vp = os.path.join(CLIPS_DIR, _cs.get("file", ""))
                         if _ctype == "video" and not _cmute and _probe_has_audio(_vp):
                             _ca: list[str] = []
-                            if _ctrm > 0 or _cspd != 1.0:
+                            if _ctrm > 0 or _cspd != 1.0 or _crev:
                                 _aud_dur = _cdur * max(0.01, _cspd)
                                 _ca.append(f"atrim=start={_ctrm:.3f}:duration={_aud_dur:.3f},asetpts=PTS-STARTPTS")
+                            if _crev:
+                                _ca.append("areverse")
                             if _cspd != 1.0:
                                 _ca.append(_atempo_chain(_cspd))
                             if abs(_cvol - 1.0) > 1e-4:
