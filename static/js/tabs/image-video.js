@@ -5833,10 +5833,6 @@ export async function init() {
             // Normal click
             S.selIdx = idx;
             S.selIdxs = new Set([idx]);
-            // Seek to clip start
-            let cursor = 0;
-            for (let i = 0; i < idx; i++) cursor += (S.clips[i].duration || 3);
-            _seek(cursor);
         }
         renderMediaList(); _renderVideoTrack(totalDur()); renderProps();
     }
