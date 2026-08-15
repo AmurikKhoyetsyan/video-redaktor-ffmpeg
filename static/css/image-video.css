@@ -665,6 +665,31 @@
     background: rgba(0, 0, 0, .3);
 }
 
+/* Fullscreen button */
+.ive-tb-fullscreen {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.ive-tb-fullscreen.active {
+    color: #4c8ec8;
+    border-color: #244870;
+    background: #162d4c;
+}
+
+/* Native fullscreen: fill the screen and show the transport bar */
+.ive-preview-wrap:fullscreen {
+    display: flex;
+    flex-direction: column;
+    background: #000;
+}
+
+.ive-preview-wrap:-webkit-full-screen {
+    display: flex;
+    flex-direction: column;
+    background: #000;
+}
+
 .ive-zoom-chip {
     background: transparent;
     border: none;

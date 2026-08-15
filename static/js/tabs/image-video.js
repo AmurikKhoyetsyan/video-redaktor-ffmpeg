@@ -111,8 +111,9 @@ export async function init() {
     const pipLblEl      = $('ive-pip-lbl');
     const labelsScroll  = $('ive-labels-scroll');
     const propsBody     = $('ive-props-body');
-    const trimBtn       = $('ive-trim-btn');
-    const saveFrameBtn  = $('ive-save-frame-btn');
+    const trimBtn         = $('ive-trim-btn');
+    const saveFrameBtn    = $('ive-save-frame-btn');
+    const fullscreenBtn   = $('ive-fullscreen-btn');
     // Transition preview elements
     const previewContentNext = $('ive-preview-content-next');
     const previewImgNext     = $('ive-preview-img-next');
@@ -1232,9 +1233,17 @@ export async function init() {
     goEnd.innerHTML         = ICONS.tbGoEnd;
     trimBtn.innerHTML       = ICONS.scissors;
     saveFrameBtn.innerHTML  = ICONS.camera;
+    fullscreenBtn.innerHTML = ICONS.fullscreen;
 
     trimBtn.addEventListener('click', _splitAtPlayhead);
     saveFrameBtn.addEventListener('click', _saveCurrentFrame);
+    fullscreenBtn.addEventListener('click', _toggleFullscreen);
+    document.addEventListener('fullscreenchange', _onFullscreenChange);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'F' && !e.ctrlKey && !e.altKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+            _toggleFullscreen();
+        }
+    });
 
     await loadProjectsList();
     await loadTemplatesList();
@@ -6098,6 +6107,22 @@ export async function init() {
         if (!s) return;
         expModal.applySettings(s);
         _updatePreviewSize();
+    }
+
+    function _toggleFullscreen() {
+        const wrap = previewWrap;
+        if (!document.fullscreenElement) {
+            wrap.requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    function _onFullscreenChange() {
+        const isFs = !!document.fullscreenElement;
+        fullscreenBtn.innerHTML = isFs ? ICONS.fullscreenExit : ICONS.fullscreen;
+        fullscreenBtn.classList.toggle('active', isFs);
+        fullscreenBtn.title = isFs ? 'Выйти из полного экрана (F)' : 'Полный экран (F)';
     }
 
     async function _saveCurrentFrame() {
