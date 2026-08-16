@@ -10,7 +10,7 @@ import { totalDur as _totalDurFn, clipAtTime as _clipAtTimeFn } from '../imgvid/
 import { drawWaveform, probeAudioDuration } from '../imgvid/waveform.js';
 import { createExpModal } from '../imgvid/exp-modal.js';
 
-import { S, _audioEls, syncAudio, pauseAllAudio } from '../imgvid/state.js';
+import { S, _audioEls, _audioGains, syncAudio, pauseAllAudio, toPerceptualGain } from '../imgvid/state.js';
 import * as History from '../imgvid/history.js';
 import * as PreviewMod from '../imgvid/preview.js';
 import * as ExportMod from '../imgvid/export.js';
@@ -1591,7 +1591,7 @@ export async function init() {
         const revOffset = _revBuf.fileDuration - trimIn - clip.duration * spd + local * spd;
         if (revOffset < 0 || revOffset >= _revBuf.buffer.duration) return;
         const gain = _revCtx.createGain();
-        gain.gain.value = clip.clipVolume ?? 1;
+        gain.gain.value = toPerceptualGain(clip.clipVolume ?? 1);
         _revSrc = _revCtx.createBufferSource();
         _revSrc.buffer = _revBuf.buffer;
         _revSrc.playbackRate.value = spd;
@@ -2742,7 +2742,7 @@ export async function init() {
                 ? (clip.duration - local) * vSpeed + (clip.trimIn || 0)
                 : local * vSpeed + (clip.trimIn || 0);
             if (!isReverse && previewVideo.playbackRate !== vSpeed) previewVideo.playbackRate = vSpeed;
-            previewVideo.volume = clip.clipVolume ?? 1;
+            previewVideo.volume = toPerceptualGain(clip.clipVolume ?? 1);
             // Mute video element when reversed — audio is handled by Web Audio API
             previewVideo.muted  = !!(clip.muteAudio) || isReverse;
             // Reversed audio: detect clip entry and (re)start buffer playback
@@ -3552,9 +3552,16 @@ export async function init() {
         const _applyAudioVol = pct => {
             track.volume = pct / 100;
             volEl.value = pct; volV.value = pct;
+            [...S.selAudioIdxs].forEach(i => { const t = S.audioTracks[i]; if (t && t !== track) t.volume = pct / 100; });
             S.dirty = true;
-            const el = _audioEls.get(track.id);
-            if (el) el.volume = Math.max(0, Math.min(1, track.volume));
+            // Apply via gain node (supports > 100%) or el.volume as fallback
+            const gain = _audioGains.get(track.id);
+            if (gain) {
+                gain.gain.value = toPerceptualGain(Math.max(0, track.volume));
+            } else {
+                const el = _audioEls.get(track.id);
+                if (el) el.volume = Math.min(1, toPerceptualGain(Math.max(0, track.volume)));
+            }
         };
         volEl.addEventListener('input', () => _applyAudioVol(parseInt(volEl.value) || 0));
         volV.addEventListener('change', () => _applyAudioVol(Math.max(0, Math.min(200, parseInt(volV.value) || 0))));
@@ -3613,6 +3620,7 @@ export async function init() {
                 track.duration = track.originalDuration / clamped;
                 _syncTrimFields();
             }
+            [...S.selAudioIdxs].forEach(i => { const t = S.audioTracks[i]; if (!t || t === track) return; t.speed = clamped; if (t.originalDuration !== undefined) t.duration = t.originalDuration / clamped; });
             S.dirty = true;
             const el = _audioEls.get(track.id);
             if (el) el.playbackRate = clamped;
@@ -3909,7 +3917,7 @@ export async function init() {
         if (isVideo) {
             const _applyClipVol = v => {
                 clip.clipVolume = v;
-                previewVideo.volume = v;
+                previewVideo.volume = toPerceptualGain(v);
                 S.dirty = true;
             };
             $('pv-clip-vol-range')?.addEventListener('input', () => {
@@ -4464,7 +4472,7 @@ export async function init() {
                 const vT = (currentTime - start) + (pip.trimIn || 0);
                 const spd = pip.speed ?? 1;
                 if (el.video.playbackRate !== spd) el.video.playbackRate = spd;
-                el.video.volume = pip.volume ?? 0;
+                el.video.volume = toPerceptualGain(pip.volume ?? 0);
                 if (!S.isPlaying) {
                     if (Math.abs(el.video.currentTime - vT) > 0.15) el.video.currentTime = vT;
                     if (!el.video.paused) el.video.pause();
@@ -5158,7 +5166,7 @@ export async function init() {
             sorted.forEach(i => {
                 const track = S.audioTracks[i]; if (!track) return;
                 const el = _audioEls.get(track.id);
-                if (el) { el.pause(); _audioEls.delete(track.id); }
+                if (el) { el.pause(); _audioEls.delete(track.id); _audioGains.delete(track.id); }
                 S.audioTracks.splice(i, 1);
             });
             S.selAudioIdx = -1; S.selAudioIdxs = new Set();
@@ -6011,14 +6019,14 @@ export async function init() {
             sorted.forEach(i => {
                 const track = S.audioTracks[i]; if (!track) return;
                 const el = _audioEls.get(track.id);
-                if (el) { el.pause(); _audioEls.delete(track.id); }
+                if (el) { el.pause(); _audioEls.delete(track.id); _audioGains.delete(track.id); }
                 S.audioTracks.splice(i, 1);
             });
             S.selAudioIdx = -1; S.selAudioIdxs = new Set(); deleted = true;
         } else if (!deleted && S.selAudioIdx >= 0 && S.selAudioIdx < S.audioTracks.length) {
             const track = S.audioTracks[S.selAudioIdx];
             const el = _audioEls.get(track?.id);
-            if (el) { el.pause(); _audioEls.delete(track.id); }
+            if (el) { el.pause(); _audioEls.delete(track.id); _audioGains.delete(track.id); }
             S.audioTracks.splice(S.selAudioIdx, 1);
             S.selAudioIdx = -1; deleted = true;
         }
