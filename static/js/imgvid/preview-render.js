@@ -442,10 +442,14 @@ function _renderSubOverlay(sub, subKey) {
 export function applyTransitionCSS(type, p) {
     if (!_dom.previewContentNext) return;
     const zT = S.previewMode === 'custom' ? `scale(${S.previewZoom})` : '';
-    _dom.previewContent.style.opacity  = '1';
-    _dom.previewContent.style.clipPath = '';
-    _dom.previewContentNext.style.opacity  = '1';
-    _dom.previewContentNext.style.clipPath = '';
+    _dom.previewContent.style.opacity       = '1';
+    _dom.previewContent.style.clipPath      = '';
+    _dom.previewContent.style.filter        = '';
+    _dom.previewContent.style.transformOrigin = '';
+    _dom.previewContentNext.style.opacity       = '1';
+    _dom.previewContentNext.style.clipPath      = '';
+    _dom.previewContentNext.style.filter        = '';
+    _dom.previewContentNext.style.transformOrigin = '';
     if (_dom.transOverlayEl) _dom.transOverlayEl.style.display = 'none';
     switch (type) {
         case 'fade': case 'crossfade': case 'dissolve':
@@ -543,6 +547,40 @@ export function applyTransitionCSS(type, p) {
             _dom.previewContent.style.transform = zT;
             _dom.previewContentNext.style.transform = '';
             break;
+        case 'wave': {
+            // Wavy vertical boundary sweeps left→right, outgoing clip stays on the right side
+            const cx = p * 120 - 10; // wave center: -10% → 110%
+            const amp = 8, freq = 2.5, steps = 28;
+            const pts = [];
+            for (let i = 0; i <= steps; i++) {
+                const frac = i / steps;
+                const wx = cx + Math.sin(frac * Math.PI * 2 * freq) * amp;
+                pts.push(`${wx.toFixed(2)}% ${(frac * 100).toFixed(2)}%`);
+            }
+            pts.push('100% 100%', '100% 0%');
+            _dom.previewContent.style.clipPath = `polygon(${pts.join(', ')})`;
+            _dom.previewContent.style.transform = zT;
+            _dom.previewContentNext.style.transform = '';
+            break;
+        }
+        case 'pageflip': {
+            // Phase 1 (0→0.5): current clip folds away to the right (pivot: right edge)
+            // Phase 2 (0.5→1): next clip unfolds in from the left (pivot: left edge)
+            if (p < 0.5) {
+                const a = p * 2 * 90; // 0° → 90°
+                _dom.previewContent.style.transformOrigin = 'right center';
+                _dom.previewContent.style.transform = `perspective(1200px) rotateY(${-a}deg)${zT ? ' ' + zT : ''}`;
+                _dom.previewContentNext.style.opacity = '0';
+                _dom.previewContentNext.style.transform = '';
+            } else {
+                const a = (1 - p) * 2 * 90; // 90° → 0°
+                _dom.previewContent.style.opacity = '0';
+                _dom.previewContent.style.transform = zT;
+                _dom.previewContentNext.style.transformOrigin = 'left center';
+                _dom.previewContentNext.style.transform = `perspective(1200px) rotateY(${a}deg)`;
+            }
+            break;
+        }
         default:
             _dom.previewContent.style.opacity = String(1 - p);
             _dom.previewContent.style.transform = zT;
@@ -553,15 +591,18 @@ export function applyTransitionCSS(type, p) {
 export function resetTransitionPreview() {
     if (!_dom.previewContentNext) return;
     const zT = S.previewMode === 'custom' ? `scale(${S.previewZoom})` : '';
-    _dom.previewContent.style.opacity  = '1';
-    _dom.previewContent.style.clipPath = '';
+    _dom.previewContent.style.opacity       = '1';
+    _dom.previewContent.style.clipPath      = '';
+    _dom.previewContent.style.filter        = '';
+    _dom.previewContent.style.transformOrigin = '';
     if (zT) _dom.previewContent.style.transform = zT;
     else _dom.previewContent.style.transform = '';
-    _dom.previewContentNext.style.display   = 'none';
-    _dom.previewContentNext.style.opacity   = '1';
-    _dom.previewContentNext.style.transform = '';
-    _dom.previewContentNext.style.clipPath  = '';
-    _dom.previewContentNext.style.filter    = '';
+    _dom.previewContentNext.style.display       = 'none';
+    _dom.previewContentNext.style.opacity       = '1';
+    _dom.previewContentNext.style.transform     = '';
+    _dom.previewContentNext.style.clipPath      = '';
+    _dom.previewContentNext.style.filter        = '';
+    _dom.previewContentNext.style.transformOrigin = '';
     if (_dom.transOverlayEl) _dom.transOverlayEl.style.display = 'none';
     if (_dom.previewVideoNext && !_dom.previewVideoNext.paused) _dom.previewVideoNext.pause();
 }

@@ -397,6 +397,9 @@ export async function init() {
     function _showCropOverlay() {
         _cropPrevCrop = S.canvasCrop;
         S.canvasCrop  = null;
+        S.selPipIdx = -1;
+        S.selPipIdxs = new Set();
+        _pipEls.forEach(el => { el.wrapper.classList.remove('selected'); });
         _updatePreviewSize();
 
         // Position overlay to match previewContent within previewInner
@@ -1718,10 +1721,14 @@ export async function init() {
     function _applyTransitionCSS(type, p) {
         if (!previewContentNext) return;
         const zT = S.previewMode === 'custom' ? `scale(${S.previewZoom})` : '';
-        previewContent.style.opacity  = '1';
-        previewContent.style.clipPath = '';
-        previewContentNext.style.opacity  = '1';
-        previewContentNext.style.clipPath = '';
+        previewContent.style.opacity       = '1';
+        previewContent.style.clipPath      = '';
+        previewContent.style.filter        = '';
+        previewContent.style.transformOrigin = '';
+        previewContentNext.style.opacity       = '1';
+        previewContentNext.style.clipPath      = '';
+        previewContentNext.style.filter        = '';
+        previewContentNext.style.transformOrigin = '';
         if (transOverlayEl) transOverlayEl.style.display = 'none';
         switch (type) {
             case 'fade': case 'crossfade': case 'dissolve':
@@ -1819,6 +1826,37 @@ export async function init() {
                 previewContent.style.transform = zT;
                 previewContentNext.style.transform = '';
                 break;
+            case 'wave': {
+                const cx = p * 120 - 10;
+                const amp = 8, freq = 2.5, steps = 28;
+                const pts = [];
+                for (let i = 0; i <= steps; i++) {
+                    const frac = i / steps;
+                    const wx = cx + Math.sin(frac * Math.PI * 2 * freq) * amp;
+                    pts.push(`${wx.toFixed(2)}% ${(frac * 100).toFixed(2)}%`);
+                }
+                pts.push('100% 100%', '100% 0%');
+                previewContent.style.clipPath = `polygon(${pts.join(', ')})`;
+                previewContent.style.transform = zT;
+                previewContentNext.style.transform = '';
+                break;
+            }
+            case 'pageflip': {
+                if (p < 0.5) {
+                    const a = p * 2 * 90;
+                    previewContent.style.transformOrigin = 'right center';
+                    previewContent.style.transform = `perspective(1200px) rotateY(${-a}deg)${zT ? ' ' + zT : ''}`;
+                    previewContentNext.style.opacity = '0';
+                    previewContentNext.style.transform = '';
+                } else {
+                    const a = (1 - p) * 2 * 90;
+                    previewContent.style.opacity = '0';
+                    previewContent.style.transform = zT;
+                    previewContentNext.style.transformOrigin = 'left center';
+                    previewContentNext.style.transform = `perspective(1200px) rotateY(${a}deg)`;
+                }
+                break;
+            }
             default:
                 previewContent.style.opacity = String(1 - p);
                 previewContent.style.transform = zT;
@@ -1829,16 +1867,19 @@ export async function init() {
     function _resetTransitionPreview() {
         if (!previewContentNext) return;
         const zT = S.previewMode === 'custom' ? `scale(${S.previewZoom})` : '';
-        previewContent.style.opacity  = '1';
-        previewContent.style.clipPath = '';
+        previewContent.style.opacity         = '1';
+        previewContent.style.clipPath        = '';
+        previewContent.style.filter          = '';
+        previewContent.style.transformOrigin = '';
         if (zT) previewContent.style.transform = zT;
         else previewContent.style.transform = '';
         if (previewMediaWrap) previewMediaWrap.style.transform = '';
-        previewContentNext.style.display   = 'none';
-        previewContentNext.style.opacity   = '1';
-        previewContentNext.style.transform = '';
-        previewContentNext.style.clipPath  = '';
-        previewContentNext.style.filter    = '';
+        previewContentNext.style.display         = 'none';
+        previewContentNext.style.opacity         = '1';
+        previewContentNext.style.transform       = '';
+        previewContentNext.style.clipPath        = '';
+        previewContentNext.style.filter          = '';
+        previewContentNext.style.transformOrigin = '';
         if (transOverlayEl) transOverlayEl.style.display = 'none';
         if (previewVideoNext && !previewVideoNext.paused) previewVideoNext.pause();
     }
@@ -3983,45 +4024,187 @@ export async function init() {
         }
     }
 
-    function _openCropDialog(clip) {
+    function _openCropDialog(clip, onApply) {
         const modal = document.getElementById('ive-crop-modal');
         if (!modal) { toast('Модальное окно кропа не найдено', 'err'); return; }
         const crop = clip.crop || { x: 0, y: 0, w: 100, h: 100 };
-        document.getElementById('ive-crop-x').value = crop.x || 0;
-        document.getElementById('ive-crop-y').value = crop.y || 0;
-        document.getElementById('ive-crop-w').value = crop.w || 100;
-        document.getElementById('ive-crop-h').value = crop.h || 100;
-        const prevImg = document.getElementById('ive-crop-preview-img');
-        if (prevImg) prevImg.src = clip.fileUrl || '';
+        const xEl = document.getElementById('ive-crop-x');
+        const yEl = document.getElementById('ive-crop-y');
+        const wEl = document.getElementById('ive-crop-w');
+        const hEl = document.getElementById('ive-crop-h');
+        xEl.value = crop.x || 0;
+        yEl.value = crop.y || 0;
+        wEl.value = crop.w || 100;
+        hEl.value = crop.h || 100;
         modal.hidden = false;
 
+        // ── Interactive canvas crop ─────────────────────────────────────────────
+        const canvas = document.getElementById('ive-crop-canvas');
+        const ctx = canvas ? canvas.getContext('2d') : null;
+        let _srcImg = null, _cW = 0, _cH = 0, _drag = null;
+
+        const _drawCropCanvas = () => {
+            if (!ctx || !_srcImg || !_cW) return;
+            const x = Math.max(0, Math.min(99, parseFloat(xEl.value) || 0));
+            const y = Math.max(0, Math.min(99, parseFloat(yEl.value) || 0));
+            const w = Math.max(1, Math.min(100 - x, parseFloat(wEl.value) || 100));
+            const h = Math.max(1, Math.min(100 - y, parseFloat(hEl.value) || 100));
+            ctx.clearRect(0, 0, _cW, _cH);
+            if (_srcImg.tagName === 'IMG' || _srcImg instanceof HTMLImageElement || _srcImg._isImg) {
+                ctx.drawImage(_srcImg, 0, 0, _cW, _cH);
+            } else {
+                ctx.fillStyle = '#1a1d26';
+                ctx.fillRect(0, 0, _cW, _cH);
+                ctx.fillStyle = '#4a5568';
+                ctx.font = `${Math.round(_cH / 12)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Видео: задайте значения или перетащите', _cW / 2, _cH / 2);
+            }
+            const sx = x / 100 * _cW, sy = y / 100 * _cH;
+            const sw = w / 100 * _cW, sh = h / 100 * _cH;
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(0, 0, _cW, sy);
+            ctx.fillRect(0, sy + sh, _cW, _cH - sy - sh);
+            ctx.fillRect(0, sy, sx, sh);
+            ctx.fillRect(sx + sw, sy, _cW - sx - sw, sh);
+            ctx.strokeStyle = '#4a9eff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#4a9eff';
+            for (const [hx, hy] of [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]]) {
+                ctx.fillRect(hx - 5, hy - 5, 10, 10);
+            }
+        };
+
+        const _initCropCanvas = (img) => {
+            _srcImg = img;
+            const nw = img.naturalWidth || img.videoWidth || 320;
+            const nh = img.naturalHeight || img.videoHeight || 180;
+            const maxW = (canvas.parentElement?.offsetWidth || 460) - 4;
+            const sc = Math.min(maxW / nw, 220 / nh, 1);
+            _cW = Math.max(1, Math.round(nw * sc));
+            _cH = Math.max(1, Math.round(nh * sc));
+            canvas.width = _cW; canvas.height = _cH;
+            canvas.style.width = _cW + 'px'; canvas.style.height = _cH + 'px';
+            _drawCropCanvas();
+        };
+
+        if (clip.type !== 'video' && clip.fileUrl) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img._isImg = true;
+            img.onload = () => _initCropCanvas(img);
+            img.onerror = () => { _srcImg = {}; _cW = 320; _cH = 180; canvas.width=320; canvas.height=180; _drawCropCanvas(); };
+            img.src = clip.fileUrl;
+        } else {
+            _srcImg = {}; _cW = 320; _cH = 180;
+            if (canvas) { canvas.width = 320; canvas.height = 180; canvas.style.width = '320px'; canvas.style.height = '180px'; }
+            _drawCropCanvas();
+        }
+
+        const _getVals = () => ({
+            x: parseFloat(xEl.value) || 0,
+            y: parseFloat(yEl.value) || 0,
+            w: Math.max(1, parseFloat(wEl.value) || 100),
+            h: Math.max(1, parseFloat(hEl.value) || 100),
+        });
+        const _hitTest = (px, py) => {
+            const { x, y, w, h } = _getVals();
+            const hs = Math.max(3, 8 / (_cW || 1) * 100); // handle hit size in %
+            for (const [cx, cy, nm] of [[x, y, 'nw'], [x+w, y, 'ne'], [x, y+h, 'sw'], [x+w, y+h, 'se']]) {
+                if (Math.abs(px - cx) < hs && Math.abs(py - cy) < hs) return { type: 'resize', corner: nm };
+            }
+            if (px >= x && px <= x + w && py >= y && py <= y + h) return { type: 'move' };
+            return { type: 'new' };
+        };
+        if (canvas) {
+            canvas.onmousedown = (e) => {
+                if (!_cW) return;
+                const r = canvas.getBoundingClientRect();
+                const px = (e.clientX - r.left) / r.width * 100;
+                const py = (e.clientY - r.top)  / r.height * 100;
+                const hit = _hitTest(px, py);
+                const v = _getVals();
+                if (hit.type === 'move') {
+                    _drag = { type: 'move', ox: px - v.x, oy: py - v.y, w: v.w, h: v.h };
+                } else if (hit.type === 'resize') {
+                    _drag = { type: 'resize', corner: hit.corner, ...v };
+                } else {
+                    _drag = { type: 'new', x0: Math.max(0, Math.min(100, px)), y0: Math.max(0, Math.min(100, py)) };
+                }
+                e.preventDefault();
+            };
+            canvas.onmousemove = (e) => {
+                const r = canvas.getBoundingClientRect();
+                const px = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+                const py = Math.max(0, Math.min(100, (e.clientY - r.top)  / r.height * 100));
+                if (!_drag) {
+                    const hit = _hitTest(px, py);
+                    const cursors = { move: 'move', resize: { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize' }, new: 'crosshair' };
+                    canvas.style.cursor = hit.type === 'resize' ? cursors.resize[hit.corner] : cursors[hit.type];
+                    return;
+                }
+                if (_drag.type === 'move') {
+                    const nx = Math.max(0, Math.min(100 - _drag.w, px - _drag.ox));
+                    const ny = Math.max(0, Math.min(100 - _drag.h, py - _drag.oy));
+                    xEl.value = Math.round(nx); yEl.value = Math.round(ny);
+                } else if (_drag.type === 'resize') {
+                    const { x: x0, y: y0, w: w0, h: h0, corner } = _drag;
+                    let nx = x0, ny = y0, nw = w0, nh = h0;
+                    if (corner === 'nw') {
+                        nx = Math.max(0, Math.min(x0 + w0 - 1, px)); ny = Math.max(0, Math.min(y0 + h0 - 1, py));
+                        nw = Math.max(1, x0 + w0 - nx); nh = Math.max(1, y0 + h0 - ny);
+                    } else if (corner === 'ne') {
+                        ny = Math.max(0, Math.min(y0 + h0 - 1, py));
+                        nw = Math.max(1, Math.min(100 - x0, px - x0)); nh = Math.max(1, y0 + h0 - ny);
+                    } else if (corner === 'sw') {
+                        nx = Math.max(0, Math.min(x0 + w0 - 1, px));
+                        nw = Math.max(1, x0 + w0 - nx); nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    } else {
+                        nw = Math.max(1, Math.min(100 - x0, px - x0)); nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    }
+                    xEl.value = Math.round(nx); yEl.value = Math.round(ny);
+                    wEl.value = Math.round(nw); hEl.value = Math.round(nh);
+                } else {
+                    xEl.value = Math.round(Math.min(_drag.x0, px));
+                    yEl.value = Math.round(Math.min(_drag.y0, py));
+                    wEl.value = Math.max(1, Math.round(Math.abs(px - _drag.x0)));
+                    hEl.value = Math.max(1, Math.round(Math.abs(py - _drag.y0)));
+                }
+                _drawCropCanvas();
+            };
+            canvas.onmouseup = () => { _drag = null; };
+            canvas.onmouseleave = () => { _drag = null; canvas.style.cursor = 'crosshair'; };
+        }
+
         const applyPreset = (ar) => {
-            const xEl = document.getElementById('ive-crop-x');
-            const yEl = document.getElementById('ive-crop-y');
-            const wEl = document.getElementById('ive-crop-w');
-            const hEl = document.getElementById('ive-crop-h');
-            if (ar === 'original') { xEl.value=0; yEl.value=0; wEl.value=100; hEl.value=100; return; }
+            if (ar === 'original') { xEl.value=0; yEl.value=0; wEl.value=100; hEl.value=100; _drawCropCanvas(); return; }
             const [aw, ah] = ar.split(':').map(Number);
             const ratio = aw / ah;
             let w = 100, h = Math.round(100 / ratio);
             if (h > 100) { h = 100; w = Math.round(100 * ratio); }
             xEl.value = Math.round((100 - w) / 2);
             yEl.value = Math.round((100 - h) / 2);
-            wEl.value = w;
-            hEl.value = h;
+            wEl.value = w; hEl.value = h;
+            _drawCropCanvas();
         };
 
         modal.querySelectorAll('.ive-crop-preset').forEach(btn => {
             btn.onclick = () => applyPreset(btn.dataset.preset);
         });
+        [xEl, yEl, wEl, hEl].forEach(el => { el.oninput = _drawCropCanvas; });
 
         document.getElementById('ive-crop-ok').onclick = () => {
-            const x = Math.max(0, parseFloat(document.getElementById('ive-crop-x').value) || 0);
-            const y = Math.max(0, parseFloat(document.getElementById('ive-crop-y').value) || 0);
-            const w = Math.max(1, parseFloat(document.getElementById('ive-crop-w').value) || 100);
-            const h = Math.max(1, parseFloat(document.getElementById('ive-crop-h').value) || 100);
+            const x = Math.max(0, parseFloat(xEl.value) || 0);
+            const y = Math.max(0, parseFloat(yEl.value) || 0);
+            const w = Math.max(1, parseFloat(wEl.value) || 100);
+            const h = Math.max(1, parseFloat(hEl.value) || 100);
             clip.crop = (x === 0 && y === 0 && w >= 100 && h >= 100) ? null : { x, y, w, h };
-            S.dirty = true; modal.hidden = true; renderPreview(); renderProps();
+            S.dirty = true; modal.hidden = true;
+            if (onApply) { onApply(); } else { renderPreview(); renderProps(); }
         };
         document.getElementById('ive-crop-cancel').onclick = () => { modal.hidden = true; };
     }
@@ -4462,6 +4645,29 @@ export async function init() {
                 el.video.style.display = 'none';
                 if (el.img.src !== pip.fileUrl) { el.img.src = pip.fileUrl; }
                 el.img.style.display = 'block';
+                const pc = pip.crop;
+                if (pc && (pc.x > 0 || pc.y > 0 || pc.w < 100 || pc.h < 100)) {
+                    const { x, y, w, h } = pc;
+                    el.img.style.position = 'absolute';
+                    el.img.style.objectFit = 'fill';
+                    el.img.style.width = `${10000 / w}%`;
+                    el.img.style.height = `${10000 / h}%`;
+                    el.img.style.left = `${-x * 100 / w}%`;
+                    el.img.style.top = `${-y * 100 / h}%`;
+                    el.img.style.maxWidth = 'none';
+                    el.img.style.maxHeight = 'none';
+                    el.img.style.clipPath = '';
+                } else {
+                    el.img.style.position = '';
+                    el.img.style.objectFit = '';
+                    el.img.style.width = '';
+                    el.img.style.height = '';
+                    el.img.style.left = '';
+                    el.img.style.top = '';
+                    el.img.style.maxWidth = '';
+                    el.img.style.maxHeight = '';
+                    el.img.style.clipPath = '';
+                }
             } else {
                 el.img.style.display = 'none';
                 const pipUrl = pip.fileUrl || '';
@@ -4479,6 +4685,27 @@ export async function init() {
                 } else {
                     if (el.video.paused) el.video.play().catch(() => {});
                     if (Math.abs(el.video.currentTime - vT) > 0.3) el.video.currentTime = vT;
+                }
+                const vc = pip.crop;
+                if (vc && (vc.x > 0 || vc.y > 0 || vc.w < 100 || vc.h < 100)) {
+                    const { x, y, w, h } = vc;
+                    el.video.style.position = 'absolute';
+                    el.video.style.objectFit = 'fill';
+                    el.video.style.width = `${10000 / w}%`;
+                    el.video.style.height = `${10000 / h}%`;
+                    el.video.style.left = `${-x * 100 / w}%`;
+                    el.video.style.top = `${-y * 100 / h}%`;
+                    el.video.style.maxWidth = 'none';
+                    el.video.style.maxHeight = 'none';
+                } else {
+                    el.video.style.position = '';
+                    el.video.style.objectFit = '';
+                    el.video.style.width = '';
+                    el.video.style.height = '';
+                    el.video.style.left = '';
+                    el.video.style.top = '';
+                    el.video.style.maxWidth = '';
+                    el.video.style.maxHeight = '';
                 }
             }
             el.wrapper.style.display = 'block';
@@ -4821,6 +5048,9 @@ export async function init() {
                 </select>
             </label>
 
+            <div class="ive-row2" style="margin-top:6px">
+                <button class="btn btn-sm" id="pip-crop-btn">${pip.crop && pip.crop.w < 100 ? '✂ Кроп (' + Math.round(pip.crop.w) + '×' + Math.round(pip.crop.h) + '%)' : '✂ Кроп'}</button>
+            </div>
             <button class="btn btn-sm danger" id="pip-delete" style="margin-top:8px">Удалить PIP</button>
         </div>`;
 
@@ -4856,6 +5086,9 @@ export async function init() {
             wire('speed',   'speed',    v => parseFloat(v)||1);
             wire('trimin',  'trimIn',   v => Math.max(0, parseFloat(v)||0));
         }
+        $('pip-crop-btn')?.addEventListener('click', () => {
+            _openCropDialog(pip, () => { renderPreview(); renderProps(); });
+        });
 
         // Layer order
         $('pip-layer-up')?.addEventListener('click', () => {
