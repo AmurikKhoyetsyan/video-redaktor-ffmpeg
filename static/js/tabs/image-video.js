@@ -4136,9 +4136,20 @@ export async function init() {
             ctx.setLineDash([5, 3]);
             ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
             ctx.setLineDash([]);
+            // Corner handles (square 10×10)
             ctx.fillStyle = '#4a9eff';
             for (const [hx, hy] of [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]]) {
                 ctx.fillRect(hx - 5, hy - 5, 10, 10);
+            }
+            // Mid-side handles (rectangle — wide on left/right, tall on top/bottom)
+            ctx.fillStyle = '#4a9eff';
+            // left, right: thin tall bar
+            for (const hx of [sx, sx + sw]) {
+                ctx.fillRect(hx - 4, sy + sh / 2 - 12, 8, 24);
+            }
+            // top, bottom: thin wide bar
+            for (const hy of [sy, sy + sh]) {
+                ctx.fillRect(sx + sw / 2 - 12, hy - 4, 24, 8);
             }
             const _badge = document.getElementById('ive-crm-badge');
             if (_badge) {
@@ -4202,10 +4213,18 @@ export async function init() {
         });
         const _hitTest = (px, py) => {
             const { x, y, w, h } = _getVals();
-            const hs = Math.max(3, 8 / (_cW || 1) * 100); // handle hit size in %
+            const hs = Math.max(3, 8 / (_cW || 1) * 100);  // perpendicular hit radius (~8px)
+            const hv = Math.max(8, 20 / (_cH || 1) * 100); // half-length of side handle hit zone, vertical edges
+            const hh = Math.max(8, 20 / (_cW || 1) * 100); // half-length of side handle hit zone, horizontal edges
+            // Corner handles (priority)
             for (const [cx, cy, nm] of [[x, y, 'nw'], [x+w, y, 'ne'], [x, y+h, 'sw'], [x+w, y+h, 'se']]) {
                 if (Math.abs(px - cx) < hs && Math.abs(py - cy) < hs) return { type: 'resize', corner: nm };
             }
+            // Mid-side handles — only near the visual bar at the midpoint
+            if (Math.abs(px - x)       < hs && Math.abs(py - (y + h/2)) < hv) return { type: 'resize', corner: 'w' };
+            if (Math.abs(px - (x + w)) < hs && Math.abs(py - (y + h/2)) < hv) return { type: 'resize', corner: 'e' };
+            if (Math.abs(py - y)       < hs && Math.abs(px - (x + w/2)) < hh) return { type: 'resize', corner: 'n' };
+            if (Math.abs(py - (y + h)) < hs && Math.abs(px - (x + w/2)) < hh) return { type: 'resize', corner: 's' };
             if (px >= x && px <= x + w && py >= y && py <= y + h) return { type: 'move' };
             return { type: 'new' };
         };
@@ -4232,7 +4251,7 @@ export async function init() {
                 const py = Math.max(0, Math.min(100, (e.clientY - r.top)  / r.height * 100));
                 if (!_drag) {
                     const hit = _hitTest(px, py);
-                    const cursors = { move: 'move', resize: { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize' }, new: 'crosshair' };
+                    const cursors = { move: 'move', resize: { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize', n:'n-resize', s:'s-resize', w:'w-resize', e:'e-resize' }, new: 'crosshair' };
                     canvas.style.cursor = hit.type === 'resize' ? cursors.resize[hit.corner] : cursors[hit.type];
                     return;
                 }
@@ -4252,8 +4271,18 @@ export async function init() {
                     } else if (corner === 'sw') {
                         nx = Math.max(0, Math.min(x0 + w0 - 1, px));
                         nw = Math.max(1, x0 + w0 - nx); nh = Math.max(1, Math.min(100 - y0, py - y0));
-                    } else {
+                    } else if (corner === 'se') {
                         nw = Math.max(1, Math.min(100 - x0, px - x0)); nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    } else if (corner === 'n') {
+                        ny = Math.max(0, Math.min(y0 + h0 - 1, py));
+                        nh = Math.max(1, y0 + h0 - ny);
+                    } else if (corner === 's') {
+                        nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    } else if (corner === 'w') {
+                        nx = Math.max(0, Math.min(x0 + w0 - 1, px));
+                        nw = Math.max(1, x0 + w0 - nx);
+                    } else if (corner === 'e') {
+                        nw = Math.max(1, Math.min(100 - x0, px - x0));
                     }
                     xEl.value = Math.round(nx); yEl.value = Math.round(ny);
                     wEl.value = Math.round(nw); hEl.value = Math.round(nh);
