@@ -843,15 +843,12 @@
 
 /* Toolbar — inside overlay at bottom center */
 .ive-crop-toolbar {
-    position: absolute;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
+    position: fixed;
     display: flex;
     gap: 5px;
     align-items: center;
     pointer-events: auto;
-    z-index: 51;
+    z-index: 9999;
     white-space: nowrap;
     background: rgba(6, 11, 22, .90);
     padding: 6px 10px;
@@ -859,7 +856,11 @@
     border: 1px solid rgba(255,255,255,.14);
     backdrop-filter: blur(8px);
     box-shadow: 0 4px 20px rgba(0,0,0,.55);
+    user-select: none;
+    cursor: grab;
 }
+.ive-crop-toolbar:active { cursor: grabbing; }
+.ive-crop-toolbar button { cursor: pointer; }
 
 /* Crop toolbar — apply button */
 .ive-ctb-apply {

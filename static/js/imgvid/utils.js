@@ -15,7 +15,7 @@ export function fmtShort(s) { const m = Math.floor(s / 60), ss = Math.floor(s % 
 const _XFADE_SET = new Set(['fade','crossfade','dissolve','fadeblack','fadewhite',
     'slideleft','slideright','slideup','slidedown','wipeleft','wiperight',
     'wipeup','wipedown','zoomin','pixelize','hblur','circlecrop',
-    'radial','fadegrays','hlslice','vuslice']);
+    'radial','fadegrays','hlslice','vuslice','wave','pageflip']);
 
 // Additive model: each clip keeps its full duration on the timeline.
 // Transitions are stored on the INCOMING clip (clips[i].transition = from clips[i-1] to clips[i]).
