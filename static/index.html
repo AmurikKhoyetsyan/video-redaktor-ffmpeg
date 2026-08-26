@@ -121,11 +121,6 @@
                                 <div class="ive-ch" data-ch="se"></div>
                                 <span id="ive-crop-dims-lbl" class="ive-crop-dims-lbl"></span>
                             </div>
-                            <div class="ive-crop-toolbar" id="ive-crop-toolbar">
-                                <button class="ive-ctb-apply" id="ive-ccrop-ok">✓ Применить</button>
-                                <button class="ive-ctb-cancel" id="ive-crop-cancel-btn">Отмена</button>
-                                <button class="ive-ctb-reset" id="ive-crop-full-btn">✕ Сбросить</button>
-                            </div>
                         </div>
                         <div class="ive-preview-empty" id="ive-preview-empty">
                             <div>Добавьте медиафайлы</div>
@@ -356,6 +351,12 @@
 <!-- ============== toast / notifications ============== -->
 <div class="toast-host" id="toasts"></div>
 
+<!-- Crop toolbar — fixed overlay, draggable anywhere on screen -->
+<div class="ive-crop-toolbar" id="ive-crop-toolbar" style="display:none">
+    <button class="ive-ctb-apply" id="ive-ccrop-ok">✓ Применить</button>
+    <button class="ive-ctb-cancel" id="ive-crop-cancel-btn">Отмена</button>
+    <button class="ive-ctb-reset" id="ive-crop-full-btn">✕ Сбросить</button>
+</div>
 
 <script type="module" src="/static/js/app.js"></script>
 </body>

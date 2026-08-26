@@ -391,6 +391,7 @@ export async function init() {
     function _cancelCropMode() {
         if (!cropOv || cropOv.style.display === 'none') return;
         cropOv.style.display = 'none';
+        _resetCropToolbarPos();
         _cropDraft = null; _cropPrevCrop = null; _cropDragMode = null;
     }
 
@@ -417,6 +418,7 @@ export async function init() {
 
         cropOv.style.display = 'block';
         cropBtn.classList.add('ive-crop-active');
+        _showCropToolbar();
         _updateCropOverlayUI();
     }
 
@@ -451,6 +453,7 @@ export async function init() {
         S.canvasCrop = (x === 0 && y === 0 && w === resW && h === resH) ? null : { x, y, w, h, resW, resH };
         S.dirty = true;
         cropOv.style.display = 'none';
+        _resetCropToolbarPos();
         _cropDraft = null; _cropPrevCrop = null; _cropDragMode = null;
         _updatePreviewSize();
         cropBtn.classList.toggle('ive-crop-active', !!S.canvasCrop);
@@ -483,8 +486,55 @@ export async function init() {
         _updateCropOverlayUI();
     });
 
-    // Prevent toolbar button clicks from bubbling to cropOv and starting a draw
-    $('ive-crop-toolbar')?.addEventListener('mousedown', e => e.stopPropagation());
+    // ── Crop toolbar drag (position: fixed → drag anywhere on screen) ────────
+    const cropToolbar = $('ive-crop-toolbar');
+
+    function _showCropToolbar() {
+        if (!cropToolbar) return;
+        cropToolbar.style.display = 'flex';
+        const ovRect = cropOv.getBoundingClientRect();
+        const tbH    = cropToolbar.offsetHeight || 40;
+        // Place below the crop overlay; if off-screen, place above it
+        const topBelow = ovRect.bottom + 8;
+        const topAbove = ovRect.top - tbH - 8;
+        const top = (topBelow + tbH < window.innerHeight) ? topBelow : Math.max(4, topAbove);
+        cropToolbar.style.transform = 'translateX(-50%)';
+        cropToolbar.style.left      = Math.round(ovRect.left + ovRect.width / 2) + 'px';
+        cropToolbar.style.top       = Math.round(top) + 'px';
+    }
+
+    function _resetCropToolbarPos() {
+        if (!cropToolbar) return;
+        cropToolbar.style.display = 'none';
+    }
+
+    cropToolbar?.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        if (e.target.closest('button')) return;
+        e.preventDefault(); e.stopPropagation();
+
+        // Switch from transform-centering to pure left/top so math is simple
+        const tbRect = cropToolbar.getBoundingClientRect();
+        cropToolbar.style.transform = 'none';
+        cropToolbar.style.left      = tbRect.left + 'px';
+        cropToolbar.style.top       = tbRect.top  + 'px';
+
+        const offX = e.clientX - tbRect.left;
+        const offY = e.clientY - tbRect.top;
+
+        const onMove = ev => {
+            const maxL = window.innerWidth  - cropToolbar.offsetWidth;
+            const maxT = window.innerHeight - cropToolbar.offsetHeight;
+            cropToolbar.style.left = Math.max(0, Math.min(maxL, ev.clientX - offX)) + 'px';
+            cropToolbar.style.top  = Math.max(0, Math.min(maxT, ev.clientY - offY)) + 'px';
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup',   onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup',   onUp);
+    });
 
     // ── Crop overlay mouse interaction ────────────────────────────────────────
     cropOv?.addEventListener('mousedown', e => {
