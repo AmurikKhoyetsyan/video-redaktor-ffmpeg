@@ -4140,14 +4140,21 @@ export async function init() {
             for (const [hx, hy] of [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]]) {
                 ctx.fillRect(hx - 5, hy - 5, 10, 10);
             }
+            const _badge = document.getElementById('ive-crm-badge');
+            if (_badge) {
+                _badge.textContent = `x:${Math.round(x)}  y:${Math.round(y)}  ${Math.round(w)}×${Math.round(h)}%`;
+                _badge.classList.add('visible');
+            }
         };
 
         const _initCropCanvas = (img) => {
             _srcImg = img;
             const nw = img.naturalWidth || img.videoWidth || 320;
             const nh = img.naturalHeight || img.videoHeight || 180;
-            const maxW = (canvas.parentElement?.offsetWidth || 460) - 4;
-            const sc = Math.min(maxW / nw, 220 / nh, 1);
+            const area = document.getElementById('ive-crm-canvas-area') || canvas.parentElement;
+            const maxW = Math.max(80, (area?.clientWidth  || 600) - 32);
+            const maxH = Math.max(60, (area?.clientHeight || 400) - 32);
+            const sc   = Math.min(1, maxW / nw, maxH / nh);
             _cW = Math.max(1, Math.round(nw * sc));
             _cH = Math.max(1, Math.round(nh * sc));
             canvas.width = _cW; canvas.height = _cH;
@@ -4279,16 +4286,43 @@ export async function init() {
         });
         [xEl, yEl, wEl, hEl].forEach(el => { el.oninput = _drawCropCanvas; });
 
+        const _crmClose = () => {
+            const box = document.getElementById('ive-crm-box');
+            if (box) box.classList.remove('ive-crm-fs');
+            const fsBtn = document.getElementById('ive-crop-fullscreen-btn');
+            if (fsBtn) { fsBtn.textContent = '⛶'; fsBtn.title = 'На весь экран'; }
+            modal.hidden = true;
+        };
         document.getElementById('ive-crop-ok').onclick = () => {
             const x = Math.max(0, parseFloat(xEl.value) || 0);
             const y = Math.max(0, parseFloat(yEl.value) || 0);
             const w = Math.max(1, parseFloat(wEl.value) || 100);
             const h = Math.max(1, parseFloat(hEl.value) || 100);
             clip.crop = (x === 0 && y === 0 && w >= 100 && h >= 100) ? null : { x, y, w, h };
-            S.dirty = true; modal.hidden = true;
+            S.dirty = true;
+            _crmClose();
             if (onApply) { onApply(); } else { renderPreview(); renderProps(); }
         };
-        document.getElementById('ive-crop-cancel').onclick = () => { modal.hidden = true; };
+        document.getElementById('ive-crop-cancel').onclick = _crmClose;
+        const _closeX = document.getElementById('ive-crm-close-x');
+        if (_closeX) _closeX.onclick = _crmClose;
+
+        // Fullscreen toggle
+        const _fsBtn = document.getElementById('ive-crop-fullscreen-btn');
+        const _crmBox = document.getElementById('ive-crm-box');
+        if (_fsBtn && _crmBox) {
+            _fsBtn.onclick = () => {
+                const isFs = _crmBox.classList.toggle('ive-crm-fs');
+                _fsBtn.textContent = isFs ? '⊡' : '⛶';
+                _fsBtn.title = isFs ? 'Обычный размер' : 'На весь экран';
+                setTimeout(() => { if (_srcImg) _initCropCanvas(_srcImg); }, 20);
+            };
+        }
+
+        // Set title: PIP vs clip
+        const _titleEl = document.getElementById('ive-crop-title');
+        if (_titleEl) _titleEl.textContent =
+            (clip.startTime !== undefined || clip.order !== undefined) ? '✂ Кроп PIP' : '✂ Кадрирование';
     }
 
     // ── Full-featured subtitle editor ─────────────────────────────────────────

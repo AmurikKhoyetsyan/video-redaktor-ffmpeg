@@ -2447,3 +2447,198 @@
     color: var(--text-dim);
     margin-bottom: 2px;
 }
+
+/* ══ Crop Modal (Image / PIP) ══════════════════════════════════════════════ */
+.ive-crm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0,0,0,0.78);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: modal-fade-in 0.12s ease;
+}
+.ive-crm-overlay[hidden] { display: none; }
+
+.ive-crm-box {
+    background: #1c1f2e;
+    border: 1px solid #2e3248;
+    border-radius: 14px;
+    box-shadow: 0 28px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    display: flex;
+    flex-direction: column;
+    width: 680px;
+    max-width: 96vw;
+    height: 78vh;
+    max-height: 860px;
+    min-height: 360px;
+    overflow: hidden;
+    animation: modal-slide-in 0.15s ease;
+}
+.ive-crm-box.ive-crm-fs {
+    width:  100vw !important;
+    max-width:  100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
+}
+
+/* Header */
+.ive-crm-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 16px;
+    background: #222639;
+    border-bottom: 1px solid #2e3248;
+    border-radius: 14px 14px 0 0;
+    flex-shrink: 0;
+}
+.ive-crm-box.ive-crm-fs .ive-crm-hdr { border-radius: 0; }
+
+.ive-crm-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d8deea;
+    letter-spacing: 0.01em;
+}
+.ive-crm-hdr-right { display: flex; gap: 6px; }
+
+.ive-crm-hbtn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1px solid #3a3f57;
+    background: transparent;
+    color: #8892aa;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .13s, color .13s, border-color .13s;
+    flex-shrink: 0;
+}
+.ive-crm-hbtn:hover { background: #2e3350; color: #c8d4f0; border-color: #4a9eff; }
+.ive-crm-hbtn-close:hover { background: rgba(220,50,50,.2); color: #f87171; border-color: rgba(220,50,50,.5); }
+
+/* Canvas area */
+.ive-crm-canvas-area {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0c0d14;
+    position: relative;
+    overflow: hidden;
+}
+#ive-crop-canvas {
+    border: 1px solid rgba(74,158,255,0.22);
+    border-radius: 4px;
+    box-shadow: 0 0 0 4px rgba(0,0,0,0.4);
+}
+
+/* Live dimensions badge */
+.ive-crm-badge {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(12,13,22,0.82);
+    border: 1px solid rgba(74,158,255,0.22);
+    color: #7abaff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.04em;
+    opacity: 0;
+    transition: opacity .15s;
+}
+.ive-crm-badge.visible { opacity: 1; }
+
+/* Footer */
+.ive-crm-footer {
+    border-top: 1px solid #2e3248;
+    background: #222639;
+    border-radius: 0 0 14px 14px;
+    padding: 10px 14px 12px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+.ive-crm-box.ive-crm-fs .ive-crm-footer { border-radius: 0; }
+
+/* Inputs row */
+.ive-crm-inputs {
+    display: flex;
+    gap: 8px;
+}
+.ive-crm-inp-lbl {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #6b7694;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.ive-crm-inp {
+    padding: 5px 8px;
+    border: 1px solid #2e3248;
+    border-radius: 6px;
+    background: #181b2a;
+    color: #d0d8ee;
+    font-size: 13px;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color .12s;
+    outline: none;
+}
+.ive-crm-inp:focus { border-color: #4a9eff; }
+
+/* Presets row */
+.ive-crm-presets {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.ive-crm-presets-lbl {
+    font-size: 10px;
+    font-weight: 600;
+    color: #5a6480;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+.ive-crm-preset-btn {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid #2e3248;
+    border-radius: 5px;
+    background: #1c1f2e;
+    color: #8892aa;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+    line-height: 1.5;
+}
+.ive-crm-preset-btn:hover { background: #2a2f48; color: #c8d4f0; border-color: #4a9eff; }
+
+/* Actions row */
+.ive-crm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
