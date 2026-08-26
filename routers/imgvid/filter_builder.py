@@ -355,6 +355,18 @@ def build_pip_filters(
             if pip_speed != 1.0:
                 pip_pre.append(f"setpts={1.0 / pip_speed:.6f}*PTS")
 
+        # ── 1.5. Crop (before scale, in source pixel space) ──────────────────
+        pip_crop = pip.get("crop")
+        if pip_crop:
+            cx = float(pip_crop.get("x", 0))
+            cy = float(pip_crop.get("y", 0))
+            cw = float(pip_crop.get("w", 100))
+            ch = float(pip_crop.get("h", 100))
+            if cw < 99.9 or ch < 99.9 or cx > 0.1 or cy > 0.1:
+                pip_pre.append(
+                    f"crop=iw*{cw/100:.6f}:ih*{ch/100:.6f}:iw*{cx/100:.6f}:ih*{cy/100:.6f}"
+                )
+
         # ── 2. Continuous effect (may replace scale) ─────────────────────────
         cont_eff        = pip.get("continuousEffect") or {}
         cont_type       = (cont_eff.get("type") or "none").strip()

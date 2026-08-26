@@ -11,6 +11,7 @@ export const TRANSITIONS = [
     { value: 'hblur', label: 'Blur' }, { value: 'circlecrop', label: 'Circle' },
     { value: 'radial', label: 'Radial' }, { value: 'fadegrays', label: 'Fade Grays' },
     { value: 'hlslice', label: 'H Slice' }, { value: 'vuslice', label: 'V Slice' },
+    { value: 'wave', label: 'Wave' }, { value: 'pageflip', label: 'Page Flip' },
 ];
 
 // Color/filter effects applied per-clip (brightness, blur, etc.)

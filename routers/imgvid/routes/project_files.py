@@ -292,13 +292,48 @@ async def save_template_to_path(body: TemplateSaveBody):
 
 @router.get("/template/browse-vproject")
 async def browse_vproject(path: str = ""):
-    """List ``.vproject`` files in a server-side directory."""
+    """List ``.vproject`` files in a server-side directory.
+
+    When no path is given, aggregates files from SAVED_TEMPLATES_DIR and
+    the project root (_BASE_DIR) so that .vproject files placed anywhere
+    in the workspace are visible on first open.
+    """
     if path and os.path.isabs(path):
         target = path
     elif path:
         target = os.path.join(_BASE_DIR, path)
     else:
-        target = SAVED_TEMPLATES_DIR
+        target = None  # aggregate mode
+
+    if target is None:
+        files = []
+        seen: set[str] = set()
+        for scan_dir in [SAVED_TEMPLATES_DIR, _BASE_DIR]:
+            if not os.path.isdir(scan_dir):
+                continue
+            try:
+                for fn in os.listdir(scan_dir):
+                    fp = os.path.join(scan_dir, fn)
+                    if fp in seen:
+                        continue
+                    if os.path.isfile(fp) and fn.lower().endswith('.vproject'):
+                        seen.add(fp)
+                        files.append({
+                            "name":  fn,
+                            "path":  fp,
+                            "size":  os.path.getsize(fp),
+                            "mtime": os.path.getmtime(fp),
+                        })
+            except PermissionError:
+                pass
+        files.sort(key=lambda x: x["mtime"], reverse=True)
+        return {
+            "dir":         SAVED_TEMPLATES_DIR,
+            "parent":      str(os.path.dirname(SAVED_TEMPLATES_DIR)),
+            "default_dir": SAVED_TEMPLATES_DIR,
+            "files":       files,
+        }
+
     if not os.path.isdir(target):
         target = SAVED_TEMPLATES_DIR
     files = []
