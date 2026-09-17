@@ -319,28 +319,40 @@
         </div>
     </div>
 
-    <!-- ══════════════ Image Crop Modal ══════════════ -->
-    <div id="ive-crop-modal" class="modal" hidden>
-        <div class="modal-box" style="max-width:500px;width:90%">
-            <div style="font-weight:600;font-size:15px;margin-bottom:10px">✂ Кадрирование — перетащите для выбора области</div>
-            <canvas id="ive-crop-canvas" style="display:block;max-width:100%;cursor:crosshair;border:1px solid var(--border,#333);margin:0 auto 10px;touch-action:none"></canvas>
-            <img id="ive-crop-preview-img" src="" alt="" style="display:none">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-                <label style="display:flex;flex-direction:column;gap:3px;font-size:12px">X%<input id="ive-crop-x" type="number" min="0" max="99" step="1" value="0" style="padding:4px 6px;border:1px solid var(--border,#333);border-radius:4px;background:var(--bg2,#2a2d35);color:var(--text,#e0e0e0);font-size:13px"></label>
-                <label style="display:flex;flex-direction:column;gap:3px;font-size:12px">Y%<input id="ive-crop-y" type="number" min="0" max="99" step="1" value="0" style="padding:4px 6px;border:1px solid var(--border,#333);border-radius:4px;background:var(--bg2,#2a2d35);color:var(--text,#e0e0e0);font-size:13px"></label>
-                <label style="display:flex;flex-direction:column;gap:3px;font-size:12px">Ширина%<input id="ive-crop-w" type="number" min="1" max="100" step="1" value="100" style="padding:4px 6px;border:1px solid var(--border,#333);border-radius:4px;background:var(--bg2,#2a2d35);color:var(--text,#e0e0e0);font-size:13px"></label>
-                <label style="display:flex;flex-direction:column;gap:3px;font-size:12px">Высота%<input id="ive-crop-h" type="number" min="1" max="100" step="1" value="100" style="padding:4px 6px;border:1px solid var(--border,#333);border-radius:4px;background:var(--bg2,#2a2d35);color:var(--text,#e0e0e0);font-size:13px"></label>
+    <!-- ══════════════ Crop Modal (Image / PIP) ══════════════ -->
+    <div id="ive-crop-modal" class="ive-crm-overlay" hidden>
+        <div class="ive-crm-box" id="ive-crm-box">
+            <div class="ive-crm-hdr">
+                <span class="ive-crm-title" id="ive-crop-title">✂ Кадрирование</span>
+                <div class="ive-crm-hdr-right">
+                    <button class="ive-crm-hbtn" id="ive-crop-fullscreen-btn" title="На весь экран">⛶</button>
+                    <button class="ive-crm-hbtn ive-crm-hbtn-close" id="ive-crm-close-x" title="Закрыть">✕</button>
+                </div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-                <button class="btn btn-sm ive-crop-preset" data-preset="original">Original</button>
-                <button class="btn btn-sm ive-crop-preset" data-preset="16:9">16:9</button>
-                <button class="btn btn-sm ive-crop-preset" data-preset="9:16">9:16</button>
-                <button class="btn btn-sm ive-crop-preset" data-preset="1:1">1:1</button>
-                <button class="btn btn-sm ive-crop-preset" data-preset="4:3">4:3</button>
+            <div class="ive-crm-canvas-area" id="ive-crm-canvas-area">
+                <canvas id="ive-crop-canvas" style="cursor:crosshair;touch-action:none;display:block"></canvas>
+                <div class="ive-crm-badge" id="ive-crm-badge"></div>
             </div>
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button class="btn" id="ive-crop-cancel">Отмена</button>
-                <button class="btn btn-primary" id="ive-crop-ok">Применить</button>
+            <div class="ive-crm-footer">
+                <div class="ive-crm-inputs">
+                    <label class="ive-crm-inp-lbl">X %<input id="ive-crop-x" class="ive-crm-inp" type="number" min="0" max="99" step="1" value="0"></label>
+                    <label class="ive-crm-inp-lbl">Y %<input id="ive-crop-y" class="ive-crm-inp" type="number" min="0" max="99" step="1" value="0"></label>
+                    <label class="ive-crm-inp-lbl">Ш %<input id="ive-crop-w" class="ive-crm-inp" type="number" min="1" max="100" step="1" value="100"></label>
+                    <label class="ive-crm-inp-lbl">В %<input id="ive-crop-h" class="ive-crm-inp" type="number" min="1" max="100" step="1" value="100"></label>
+                </div>
+                <div class="ive-crm-presets">
+                    <span class="ive-crm-presets-lbl">Соотношение:</span>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="original">Оригинал</button>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="16:9">16:9</button>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="9:16">9:16</button>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="1:1">1:1</button>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="4:3">4:3</button>
+                    <button class="ive-crm-preset-btn ive-crop-preset" data-preset="3:2">3:2</button>
+                </div>
+                <div class="ive-crm-actions">
+                    <button class="btn" id="ive-crop-cancel">Отмена</button>
+                    <button class="btn btn-primary" id="ive-crop-ok">✓ Применить</button>
+                </div>
             </div>
         </div>
     </div>

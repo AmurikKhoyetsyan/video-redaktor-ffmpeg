@@ -460,6 +460,13 @@ export async function init() {
     }
 
     cropBtn?.addEventListener('click', () => {
+        // If a PiP is selected, crop the PiP content instead of the canvas
+        if (S.selPipIdx >= 0 && S.selPipIdx < S.pipLayers.length) {
+            const pip = S.pipLayers[S.selPipIdx];
+            if (!pip || pip._empty) return;
+            _openCropDialog(pip, () => { renderPreview(); renderProps(); });
+            return;
+        }
         if (cropOv && cropOv.style.display !== 'none') {
             // Toggle off — cancel crop mode without applying
             S.canvasCrop = _cropPrevCrop;
@@ -3295,6 +3302,12 @@ export async function init() {
 
     function renderProps() {
         _updateTrimBtn();
+        if (cropBtn) {
+            const pip = S.selPipIdx >= 0 ? S.pipLayers[S.selPipIdx] : null;
+            const pipActive = pip && !pip._empty;
+            cropBtn.title = pipActive ? 'Кроп PIP медиа' : 'Кроп холста';
+            cropBtn.style.outline = pipActive ? '2px solid var(--accent,#4a9eff)' : '';
+        }
         if (S.selPipIdxs.size > 1) { _renderPropsMultiPip(); return; }
         if (S.selPipIdx >= 0 && S.selPipIdx < S.pipLayers.length) {
             _renderPropsPip(S.pipLayers[S.selPipIdx], S.selPipIdx); return;
@@ -4100,7 +4113,7 @@ export async function init() {
             const w = Math.max(1, Math.min(100 - x, parseFloat(wEl.value) || 100));
             const h = Math.max(1, Math.min(100 - y, parseFloat(hEl.value) || 100));
             ctx.clearRect(0, 0, _cW, _cH);
-            if (_srcImg.tagName === 'IMG' || _srcImg instanceof HTMLImageElement || _srcImg._isImg) {
+            if (_srcImg && (_srcImg.tagName === 'IMG' || _srcImg instanceof HTMLImageElement || _srcImg._isImg || _srcImg.tagName === 'VIDEO')) {
                 ctx.drawImage(_srcImg, 0, 0, _cW, _cH);
             } else {
                 ctx.fillStyle = '#1a1d26';
@@ -4109,7 +4122,7 @@ export async function init() {
                 ctx.font = `${Math.round(_cH / 12)}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('Видео: задайте значения или перетащите', _cW / 2, _cH / 2);
+                ctx.fillText('Загрузка…', _cW / 2, _cH / 2);
             }
             const sx = x / 100 * _cW, sy = y / 100 * _cH;
             const sw = w / 100 * _cW, sh = h / 100 * _cH;
@@ -4123,9 +4136,25 @@ export async function init() {
             ctx.setLineDash([5, 3]);
             ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
             ctx.setLineDash([]);
+            // Corner handles (square 10×10)
             ctx.fillStyle = '#4a9eff';
             for (const [hx, hy] of [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]]) {
                 ctx.fillRect(hx - 5, hy - 5, 10, 10);
+            }
+            // Mid-side handles (rectangle — wide on left/right, tall on top/bottom)
+            ctx.fillStyle = '#4a9eff';
+            // left, right: thin tall bar
+            for (const hx of [sx, sx + sw]) {
+                ctx.fillRect(hx - 4, sy + sh / 2 - 12, 8, 24);
+            }
+            // top, bottom: thin wide bar
+            for (const hy of [sy, sy + sh]) {
+                ctx.fillRect(sx + sw / 2 - 12, hy - 4, 24, 8);
+            }
+            const _badge = document.getElementById('ive-crm-badge');
+            if (_badge) {
+                _badge.textContent = `x:${Math.round(x)}  y:${Math.round(y)}  ${Math.round(w)}×${Math.round(h)}%`;
+                _badge.classList.add('visible');
             }
         };
 
@@ -4133,8 +4162,10 @@ export async function init() {
             _srcImg = img;
             const nw = img.naturalWidth || img.videoWidth || 320;
             const nh = img.naturalHeight || img.videoHeight || 180;
-            const maxW = (canvas.parentElement?.offsetWidth || 460) - 4;
-            const sc = Math.min(maxW / nw, 220 / nh, 1);
+            const area = document.getElementById('ive-crm-canvas-area') || canvas.parentElement;
+            const maxW = Math.max(80, (area?.clientWidth  || 600) - 32);
+            const maxH = Math.max(60, (area?.clientHeight || 400) - 32);
+            const sc   = Math.min(1, maxW / nw, maxH / nh);
             _cW = Math.max(1, Math.round(nw * sc));
             _cH = Math.max(1, Math.round(nh * sc));
             canvas.width = _cW; canvas.height = _cH;
@@ -4149,6 +4180,25 @@ export async function init() {
             img.onload = () => _initCropCanvas(img);
             img.onerror = () => { _srcImg = {}; _cW = 320; _cH = 180; canvas.width=320; canvas.height=180; _drawCropCanvas(); };
             img.src = clip.fileUrl;
+        } else if (clip.type === 'video' && clip.fileUrl) {
+            const vid = document.createElement('video');
+            vid.crossOrigin = 'anonymous';
+            vid.muted = true;
+            vid.preload = 'metadata';
+            let _frameDrawn = false;
+            const _onFrame = () => { if (_frameDrawn) return; _frameDrawn = true; _initCropCanvas(vid); };
+            vid.addEventListener('seeked', _onFrame, { once: true });
+            vid.addEventListener('loadeddata', () => {
+                const t = clip.in || 0;
+                if (t > 0) { vid.currentTime = t; } else { _onFrame(); }
+            }, { once: true });
+            vid.addEventListener('error', () => {
+                _srcImg = {}; _cW = 320; _cH = 180;
+                if (canvas) { canvas.width = 320; canvas.height = 180; canvas.style.width = '320px'; canvas.style.height = '180px'; }
+                _drawCropCanvas();
+            });
+            vid.src = clip.fileUrl;
+            vid.load();
         } else {
             _srcImg = {}; _cW = 320; _cH = 180;
             if (canvas) { canvas.width = 320; canvas.height = 180; canvas.style.width = '320px'; canvas.style.height = '180px'; }
@@ -4163,10 +4213,18 @@ export async function init() {
         });
         const _hitTest = (px, py) => {
             const { x, y, w, h } = _getVals();
-            const hs = Math.max(3, 8 / (_cW || 1) * 100); // handle hit size in %
+            const hs = Math.max(3, 8 / (_cW || 1) * 100);  // perpendicular hit radius (~8px)
+            const hv = Math.max(8, 20 / (_cH || 1) * 100); // half-length of side handle hit zone, vertical edges
+            const hh = Math.max(8, 20 / (_cW || 1) * 100); // half-length of side handle hit zone, horizontal edges
+            // Corner handles (priority)
             for (const [cx, cy, nm] of [[x, y, 'nw'], [x+w, y, 'ne'], [x, y+h, 'sw'], [x+w, y+h, 'se']]) {
                 if (Math.abs(px - cx) < hs && Math.abs(py - cy) < hs) return { type: 'resize', corner: nm };
             }
+            // Mid-side handles — only near the visual bar at the midpoint
+            if (Math.abs(px - x)       < hs && Math.abs(py - (y + h/2)) < hv) return { type: 'resize', corner: 'w' };
+            if (Math.abs(px - (x + w)) < hs && Math.abs(py - (y + h/2)) < hv) return { type: 'resize', corner: 'e' };
+            if (Math.abs(py - y)       < hs && Math.abs(px - (x + w/2)) < hh) return { type: 'resize', corner: 'n' };
+            if (Math.abs(py - (y + h)) < hs && Math.abs(px - (x + w/2)) < hh) return { type: 'resize', corner: 's' };
             if (px >= x && px <= x + w && py >= y && py <= y + h) return { type: 'move' };
             return { type: 'new' };
         };
@@ -4193,7 +4251,7 @@ export async function init() {
                 const py = Math.max(0, Math.min(100, (e.clientY - r.top)  / r.height * 100));
                 if (!_drag) {
                     const hit = _hitTest(px, py);
-                    const cursors = { move: 'move', resize: { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize' }, new: 'crosshair' };
+                    const cursors = { move: 'move', resize: { nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize', n:'n-resize', s:'s-resize', w:'w-resize', e:'e-resize' }, new: 'crosshair' };
                     canvas.style.cursor = hit.type === 'resize' ? cursors.resize[hit.corner] : cursors[hit.type];
                     return;
                 }
@@ -4213,8 +4271,18 @@ export async function init() {
                     } else if (corner === 'sw') {
                         nx = Math.max(0, Math.min(x0 + w0 - 1, px));
                         nw = Math.max(1, x0 + w0 - nx); nh = Math.max(1, Math.min(100 - y0, py - y0));
-                    } else {
+                    } else if (corner === 'se') {
                         nw = Math.max(1, Math.min(100 - x0, px - x0)); nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    } else if (corner === 'n') {
+                        ny = Math.max(0, Math.min(y0 + h0 - 1, py));
+                        nh = Math.max(1, y0 + h0 - ny);
+                    } else if (corner === 's') {
+                        nh = Math.max(1, Math.min(100 - y0, py - y0));
+                    } else if (corner === 'w') {
+                        nx = Math.max(0, Math.min(x0 + w0 - 1, px));
+                        nw = Math.max(1, x0 + w0 - nx);
+                    } else if (corner === 'e') {
+                        nw = Math.max(1, Math.min(100 - x0, px - x0));
                     }
                     xEl.value = Math.round(nx); yEl.value = Math.round(ny);
                     wEl.value = Math.round(nw); hEl.value = Math.round(nh);
@@ -4247,16 +4315,43 @@ export async function init() {
         });
         [xEl, yEl, wEl, hEl].forEach(el => { el.oninput = _drawCropCanvas; });
 
+        const _crmClose = () => {
+            const box = document.getElementById('ive-crm-box');
+            if (box) box.classList.remove('ive-crm-fs');
+            const fsBtn = document.getElementById('ive-crop-fullscreen-btn');
+            if (fsBtn) { fsBtn.textContent = '⛶'; fsBtn.title = 'На весь экран'; }
+            modal.hidden = true;
+        };
         document.getElementById('ive-crop-ok').onclick = () => {
             const x = Math.max(0, parseFloat(xEl.value) || 0);
             const y = Math.max(0, parseFloat(yEl.value) || 0);
             const w = Math.max(1, parseFloat(wEl.value) || 100);
             const h = Math.max(1, parseFloat(hEl.value) || 100);
             clip.crop = (x === 0 && y === 0 && w >= 100 && h >= 100) ? null : { x, y, w, h };
-            S.dirty = true; modal.hidden = true;
+            S.dirty = true;
+            _crmClose();
             if (onApply) { onApply(); } else { renderPreview(); renderProps(); }
         };
-        document.getElementById('ive-crop-cancel').onclick = () => { modal.hidden = true; };
+        document.getElementById('ive-crop-cancel').onclick = _crmClose;
+        const _closeX = document.getElementById('ive-crm-close-x');
+        if (_closeX) _closeX.onclick = _crmClose;
+
+        // Fullscreen toggle
+        const _fsBtn = document.getElementById('ive-crop-fullscreen-btn');
+        const _crmBox = document.getElementById('ive-crm-box');
+        if (_fsBtn && _crmBox) {
+            _fsBtn.onclick = () => {
+                const isFs = _crmBox.classList.toggle('ive-crm-fs');
+                _fsBtn.textContent = isFs ? '⊡' : '⛶';
+                _fsBtn.title = isFs ? 'Обычный размер' : 'На весь экран';
+                setTimeout(() => { if (_srcImg) _initCropCanvas(_srcImg); }, 20);
+            };
+        }
+
+        // Set title: PIP vs clip
+        const _titleEl = document.getElementById('ive-crop-title');
+        if (_titleEl) _titleEl.textContent =
+            (clip.startTime !== undefined || clip.order !== undefined) ? '✂ Кроп PIP' : '✂ Кадрирование';
     }
 
     // ── Full-featured subtitle editor ─────────────────────────────────────────
@@ -4550,10 +4645,24 @@ export async function init() {
     function _positionPipEl(pip, el) {
         if (!el) return;
         const { wrapper } = el;
-        wrapper.style.left    = (pip.x || 0) + '%';
-        wrapper.style.top     = (pip.y || 0) + '%';
-        wrapper.style.width   = (pip.w || 30) + '%';
-        wrapper.style.height  = (pip.h || 20) + '%';
+        const crop = S.canvasCrop;
+        let leftPct, topPct, widthPct, heightPct;
+        if (crop && crop.w > 0 && crop.h > 0 && crop.resW > 0 && crop.resH > 0) {
+            // pip.x/y/w/h are % of full canvas — convert to % of cropped area for display
+            leftPct   = ((pip.x || 0) / 100 * crop.resW - crop.x) / crop.w * 100;
+            topPct    = ((pip.y || 0) / 100 * crop.resH - crop.y) / crop.h * 100;
+            widthPct  = (pip.w || 30) * crop.resW / crop.w;
+            heightPct = (pip.h || 20) * crop.resH / crop.h;
+        } else {
+            leftPct   = pip.x || 0;
+            topPct    = pip.y || 0;
+            widthPct  = pip.w || 30;
+            heightPct = pip.h || 20;
+        }
+        wrapper.style.left    = leftPct   + '%';
+        wrapper.style.top     = topPct    + '%';
+        wrapper.style.width   = widthPct  + '%';
+        wrapper.style.height  = heightPct + '%';
         wrapper.style.opacity = pip.opacity ?? 1;
         wrapper.style.filter  = buildCSSFilter(pip.effects || []);
         wrapper.style.transform = '';
@@ -4593,10 +4702,15 @@ export async function init() {
                 const dy = ev.clientY - sy;
                 if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
                 moved = true;
+                // When crop is active, previewContent shows crop area, not full canvas.
+                // Scale delta so stored pip.x/y stay in % of full canvas.
+                const crop = S.canvasCrop;
+                const cfX = (crop && crop.w > 0 && crop.resW > 0) ? crop.w / crop.resW : 1;
+                const cfY = (crop && crop.h > 0 && crop.resH > 0) ? crop.h / crop.resH : 1;
                 _dragPipData.forEach(({ pi: pi2, x0: px0, y0: py0 }) => {
                     const p2 = S.pipLayers[pi2]; if (!p2) return;
-                    p2.x = Math.max(0, Math.min(100, px0 + dx / rect.width * 100));
-                    p2.y = Math.max(0, Math.min(100, py0 + dy / rect.height * 100));
+                    p2.x = Math.max(0, Math.min(100, px0 + dx / rect.width * cfX * 100));
+                    p2.y = Math.max(0, Math.min(100, py0 + dy / rect.height * cfY * 100));
                     const e2 = _pipEls.get(p2.id);
                     if (e2) _positionPipEl(p2, e2);
                 });
@@ -4637,8 +4751,12 @@ export async function init() {
                 let moved = false;
                 const onMove = ev => {
                     moved = true;
-                    const dx = (ev.clientX - sx) / rect.width * 100;
-                    const dy = (ev.clientY - sy) / rect.height * 100;
+                    // Keep pip.x/y/w/h in % of full canvas even when crop is active
+                    const crop = S.canvasCrop;
+                    const cfX = (crop && crop.w > 0 && crop.resW > 0) ? crop.w / crop.resW : 1;
+                    const cfY = (crop && crop.h > 0 && crop.resH > 0) ? crop.h / crop.resH : 1;
+                    const dx = (ev.clientX - sx) / rect.width * cfX * 100;
+                    const dy = (ev.clientY - sy) / rect.height * cfY * 100;
                     let newX = x0, newY = y0, newW = w0, newH = h0;
                     // Width changes
                     if (dir.includes('e')) newW = w0 + dx;
