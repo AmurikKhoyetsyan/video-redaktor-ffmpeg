@@ -487,7 +487,7 @@ async def export_video(
                         _cspd  = float(_cs.get("speed", 1) or 1)
                         _ctrm  = float(_cs.get("trimIn", 0) or 0)
                         _cmute = _cs.get("muteAudio", False)
-                        _cvol  = float(_cs.get("clipVolume") or 1)
+                        _cvol  = float(_cs["clipVolume"]) if _cs.get("clipVolume") is not None else 1.0
                         _crev  = bool(_cs.get("reverse", False))
                         _vp = os.path.join(CLIPS_DIR, _cs.get("file", ""))
                         if _ctype == "video" and not _cmute and _probe_has_audio(_vp):
