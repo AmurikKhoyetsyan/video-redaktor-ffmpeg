@@ -2885,6 +2885,8 @@ export async function init() {
                 const nSpeed = nextClip.speed ?? 1;
                 const nVT = nextLocal * nSpeed + (nextClip.trimIn || 0);
                 if (previewVideoNext.playbackRate !== nSpeed) previewVideoNext.playbackRate = nSpeed;
+                previewVideoNext.volume = toPerceptualGain(nextClip.clipVolume ?? 1);
+                previewVideoNext.muted  = !!(nextClip.muteAudio);
                 if (!S.isPlaying) {
                     if (Math.abs(previewVideoNext.currentTime - nVT) > 0.15) previewVideoNext.currentTime = nVT;
                     if (!previewVideoNext.paused) previewVideoNext.pause();
